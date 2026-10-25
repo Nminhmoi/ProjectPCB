@@ -1,0 +1,1 @@
+#Nam Anh: Căn chỉnh ORB & Trừ vi sai ==> Output: binary image đốm lỗi

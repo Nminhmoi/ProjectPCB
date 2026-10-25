@@ -1,0 +1,1 @@
+#Hinh: Ghép nối lại & Đóng khung đỏ ==> Output: Hiển thị ảnh gốc với các ô chữ nhật màu đỏ bao quanh lỗi
