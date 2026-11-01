@@ -91,9 +91,9 @@ pcb-defect-detection/
 │   └── sample_01_test.jpg
 ├── crops/                    # Thư mục lưu các đốm lỗi vừa cắt ra
 ├── results/                  # Thư mục lưu ảnh kết quả đã đóng khung đỏ
-├── module_preprocess.py      # Code của TV1
-├── module_detection.py       # Code của TV2 (Leader)
-└── main.py                   # Code của TV3 (File chạy chính)
+├── module_preprocess.py      
+├── module_detection.py       
+└── main.py                   
 ```
 
 ---
