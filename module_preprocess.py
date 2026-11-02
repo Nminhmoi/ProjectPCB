@@ -6,7 +6,7 @@ def align_images(
         img_template: np.ndarray, 
         img_test: np.ndarray, 
         max_features: int = 5000, 
-        keep_percentage: float = 0.15) -> np.ndarray:
+        keep_percentage: float = 0.8) -> np.ndarray:
 
     gray_template = (
         cv2.cvtColor(img_template, cv2.COLOR_BGR2GRAY)
@@ -35,7 +35,7 @@ def align_images(
 
     matches = sorted(matches, key = lambda x: x.distance)
     num_keeps = int(len(matches) * keep_percentage)
-    good_matches = matches[:max(num_keeps, 4)]
+    good_matches = matches[:max(num_keeps, 50 if len(matches) >= 50 else 4)]
 
     pts_test = np.zeros((len(good_matches), 2), dtype=np.float32)
     pts_template = np.zeros((len(good_matches), 2), dtype=np.float32)
