@@ -5,17 +5,17 @@ import os
 def extract_bounding_boxes(clean_mask, min_area=20):
     # Dò biên liên thông các vùng trắng ngoài cùng
     contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    boxes =  []
+    boxes = []
     for cnt in contours:
         #Lọc bỏ các đốm nhiễu hạt có diện tích nhỏ hơn 20px
-        area = cv2.contourArea(cnt)
+        x, y, w, h = cv2.boundingRect(cnt)
+        area = int(cv2.countNonZero(clean_mask[y:y+h, x:x+w]))
         if area < min_area:
             continue
         
-        x, y, w, h = cv2.boundingRect(cnt)
-        
         boxes.append((x, y, w, h))
-        
+    boxes.sort(key=lambda b: (b[1], b[0])) #sắp xếp danh sách bounding box theo thứ tự từ trên xuống dưới
+    
     return boxes
 
 def crop_defect_patches(img_test, boxes, output_dir="crops", padding = 5):
@@ -23,7 +23,7 @@ def crop_defect_patches(img_test, boxes, output_dir="crops", padding = 5):
         raise ValueError("Anh khong hop le.")
     
     if padding < 0:
-        raise ValueError("Padding lon hon hoac bang 0.")
+        raise ValueError("Padding phai >= 0.")
     
     os.makedirs(output_dir, exist_ok=True)
     img_height, img_width = img_test.shape[:2]

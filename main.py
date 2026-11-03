@@ -128,7 +128,15 @@ def main():
 
     # 5. Cắt và lưu các ảnh con đốm lỗi (Crops)
     crop_dir = "crops"
-    crop_paths = crop_defect_patches(img_test_aligned, boxes, output_dir=crop_dir, padding=5)
+    #Xoa crop cu de tranh file thua tu lan chay truoc
+    if os.path.isdir(crop_dir):
+        for name in os.listdir(crop_dir):
+            path = os.path.join(crop_dir, name)
+            if os.path.isfile(path):
+                os.remove(path)
+                
+    crop_paths = crop_defect_patches(img_test_aligned, boxes, output_dir=crop_dir, padding=5)            
+                
 
     # 6. Đóng khung đỏ và lưu ảnh kết quả vào thư mục 'results/'
     results_dir = "results"
