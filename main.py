@@ -5,21 +5,15 @@ import os
 import time
 import cv2
 import numpy as np
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # 1. Import module tiền xử lý
-try:
-    from module_preprocess import align_images, detect_difference
-except ImportError:
-    align_images = None
-    detect_difference = None
+from module_preprocess import align_images, detect_difference
 
-# 2. Import module phát hiện & cắt đốm lỗi của Minh
-try:
-    from module_detection import extract_bounding_boxes, crop_defect_patches
-except ImportError:
-    import module_detection
-    extract_bounding_boxes = getattr(module_detection, 'extract_bounding_boxes', None)
-    crop_defect_patches = getattr(module_detection, 'crop_defect_patches', None)
+# 2. Import module phát hiện & cắt đốm lỗi
+from module_detection import extract_bounding_boxes, crop_defect_patches
 
 
 def load_and_verify_images(
@@ -102,10 +96,41 @@ def draw_results(img_test: np.ndarray, boxes: list) -> np.ndarray:
         )
     return img_annotated
 
+# hàm dọn output
+def clean_output_directories(directories: list = None) -> int:
+    """
+    Xóa sạch các file ảnh trong thư mục output (mặc định: 'crops', 'results')
+    trước khi chạy pipeline để tránh nhầm lẫn dữ liệu giữa các lần chạy.
+    """
+    if directories is None:
+        directories = ['crops', 'results']
+
+    valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')
+    deleted_count = 0
+
+    for directory in directories:
+        if not os.path.exists(directory):
+            continue
+
+        for filename in os.listdir(directory):
+            if filename.lower().endswith(valid_extensions):
+                file_path = os.path.join(directory, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        deleted_count += 1
+                except Exception as exc:
+                    print(f"[CẢNH BÁO] Không thể xóa file '{file_path}': {exc}")
+
+    return deleted_count
+
 
 # hàm main
 def main():
     start_total_time = time.time()
+
+    # Dọn dẹp output cũ trước khi chạy
+    clean_output_directories(['crops', 'results'])
 
     # 1. Tải và kiểm tra ảnh đầu vào
     (img_test_gray, img_temp_gray), (img_test_color, img_temp_color) = load_and_verify_images(
@@ -117,7 +142,8 @@ def main():
     # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (ORB & Homography)
     try:
         img_test_aligned = align_images(img_temp_color, img_test_color)
-    except Exception:
+    except Exception as exc:
+        print(f"[CẢNH BÁO] Căn chỉnh thất bại: {exc} — dùng ảnh chưa căn chỉnh")
         img_test_aligned = img_test_color
 
     # 3. Trừ vi sai và nhị phân hóa Otsu, khử nhiễu Morphology
@@ -147,20 +173,19 @@ def main():
 
     # In báo cáo kết quả
     total_time = time.time() - start_total_time
-    print(" KẾT QUẢ:    ")
+    print(" KET QUA:    ")
     print(f"- Tổng số khuyết tật phát hiện: {len(boxes)}")
     print(f"- Tổng thời gian xử lý:         {total_time:.3f} giây\n")
-    print(f"{'STT':<6} | {'Tọa độ (x, y)':<16} | {'Kích thước (w, h)':<18} | {'Diện tích':<12}")
-    print("-" * 65)
+    print(f"{'STT':<5} | {'Tọa độ (x, y)':<15} | {'Kích thước (w, h)':<19} | {'Diện tích':>10}")
+    print("-" * 58)
     for idx, (x, y, w, h) in enumerate(boxes, start=1):
-        coord_str = f"({x}, {y})"
-        size_str = f"{w} x {h} px"
-        area_str = f"{w * h} px"
-        print(f"#{idx:<5} | {coord_str:<16} | {size_str:<18} | {area_str:<12}")
-
-    print("-" * 65)
-    print(f"Đã lưu ảnh trong '{crop_dir}/'):")
-    print(f"\nẢnh kết quả trực quan hóa: {output_result_path}")
+        coord_str = f"({x:>3}, {y:>3})"
+        size_str = f"{w:>3} x {h:>3} px"
+        area_str = f"{w * h:>5} px"
+        print(f"#{idx:<4} | {coord_str:<15} | {size_str:<19} | {area_str:>10}")
+    print("-" * 58)
+    print(f"Đã lưu {len(crop_paths)} ảnh đốm lỗi trong thư mục '{crop_dir}/'")
+    print(f"Ảnh kết quả trực quan hóa: {output_result_path}")
     print("=" * 65)
 
 
