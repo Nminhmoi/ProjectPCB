@@ -1,0 +1,24 @@
+# ===== Output sinh ra khi chạy pipeline =====
+crops/
+results/
+
+# ===== Dataset =====
+# Chỉ giữ 2 ảnh mẫu bắt buộc để main.py chạy được trên máy mới.
+# Mọi dataset/ảnh khác đặt trong data/ sẽ không bị commit.
+data/*
+!data/92000000_temp.jpg
+!data/92000000_test.jpg
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
