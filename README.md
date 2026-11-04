@@ -43,7 +43,7 @@ Pipeline xử lý ảnh gồm chuỗi 8 bước tuần tự:
                                                           │
           ┌───────────────────────────────────────────────┘
           ▼
-[3. Gaussian Blur (3x3)] ──► [4. Trừ vi sai (absdiff)] ──► [5. Nhị phân hóa Otsu]
+[3. Gaussian Blur (3x3)] ──► [4. Trừ vi sai ] ──► [5. Nhị phân hóa Otsu]
                                                                   │
           ┌───────────────────────────────────────────────────────┘
           ▼
@@ -64,7 +64,7 @@ Mỗi thành viên chịu trách nhiệm module độc lập và bắt buộc tu
 * `align_images(img_template, img_test) -> img_test_aligned`
   * Dò đặc trưng ORB, khớp BFMatcher, lọc RANSAC tính ma trận Homography để nắn ảnh kiểm tra khớp với ảnh mẫu.
 * `detect_difference(img_template, img_test_aligned) -> diff_binary`
-  * Làm mờ Gaussian Blur ($3 \times 3$), tính `cv2.absdiff`, nhị phân hóa ngưỡng Otsu, áp dụng phép mở `cv2.morphologyEx(MORPH_OPEN)` với Kernel $3 \times 3$ để tẩy sạch viền giả do căn chỉnh.
+  * Làm mờ Gaussian Blur ($3 \times 3$), trừ vi sai để khử viền giả do lệch căn chỉnh, nhị phân hóa ngưỡng, áp dụng phép mở `cv2.morphologyEx(MORPH_OPEN)` với Kernel $3 \times 3$ để tẩy sạch nhiễu hạt.
 
 #### Minh: Định vị & Trích xuất đốm lỗi (`module_detection.py`)
 * `extract_bounding_boxes(diff_binary, min_area=20) -> list[tuple(x, y, w, h)]`
@@ -79,43 +79,43 @@ Mỗi thành viên chịu trách nhiệm module độc lập và bắt buộc tu
 * Chạy kiểm thử trên 10 cặp ảnh DeepPCB để chuẩn bị báo cáo tiến độ.
 
 ### Buổi 3:
- #### Nam Anh — Script Đánh giá Định lượng & Đo đạc Thực nghiệm (`evaluate.py`):
+ #### Nam Anh — Script Đánh giá Định lượng & Đo đạc Thực nghiệm, Thử nghiệm & Thích ứng trên Dataset PKU-Market-PCB:
 * Viết script `evaluate.py` tự động chạy hàng loạt trên 500 ảnh test của DeepPCB.
   * Đo đạc các chỉ số: IoU trung bình, Precision, Recall, Miss Rate.
   * Lập bảng số liệu và biểu đồ ma trận nhầm lẫn (Confusion Matrix) để đưa vào báo cáo tiến độ.pth`) và viết hàm `predict_defect(crop_img) -> label_name`.
- #### Minh — Dữ liệu & Huấn luyện Mô hình Phân loại (`module_classification.py`):
+  * Bổ sung bước tiền xử lý ảnh màu (chuyển đổi HSV/Lab, cân bằng sáng CLAHE để khử bóng phản xạ bề mặt kim loại).
+  * Chạy thử nghiệm và phân tích ưu/nhược điểm của thuật toán khi gặp ảnh bo mạch thực tế.
+  
+ #### Minh — Dữ liệu & Huấn luyện Mô hình Phân loại (`module_classification.py`), Đóng gói ứng dụng Desktop:
   * Thu thập và gán nhãn các đốm lỗi từ tập train để tạo bộ dữ liệu huấn luyện.
   * Trích xuất đặc trưng và huấn luyện mô hình phân loại 6 loại lỗi.
   * Xuất file mô hình đã huấn luyện (VD: `model.pkl`).
-  #### Hinh — Cắt lỗi & Xây dựng Giao diện Desktop (`gui_app.py`):
- * Thiết kế và lập trình giao diện Desktop: kết nối pipeline từ tiền xử lý, định vị đến phân loại lên giao diện bấm nút.
-
-### Buổi 4:
-#### Nam Anh — Thử nghiệm & Thích ứng trên Dataset PKU-Market-PCB:
-  * Bổ sung bước tiền xử lý ảnh màu (chuyển đổi HSV/Lab, cân bằng sáng CLAHE để khử bóng phản xạ bề mặt kim loại).
-  * Chạy thử nghiệm và phân tích ưu/nhược điểm của thuật toán khi gặp ảnh bo mạch thực tế.
-#### Minh — Đóng gói ứng dụng Desktop:
   * Tối ưu hóa kích thước mô hình và tốc độ nạp ảnh.
   * Đóng gói mã nguồn hoàn chỉnh (nếu có thể thì đóng gói file .exe (PyInstaller))
-#### Hinh — Tổng kết đồ án & Báo cáo:
- * Rà soát, chuẩn hóa toàn bộ mã nguồn của nhóm, bổ sung chú thích rõ ràng.
- * Hoàn thiện Báo cáo (trình bày đầy đủ cơ sở lý thuyết, kiến trúc pipeline và bảng số liệu thực nghiệm).
+  
+  #### Hinh — Cắt lỗi & Xây dựng Giao diện Desktop (`gui_app.py`):
+  * Thiết kế và lập trình giao diện Desktop: kết nối pipeline từ tiền xử lý, định vị đến phân loại lên giao diện bấm nút.
+  * Rà soát, chuẩn hóa toàn bộ mã nguồn của nhóm, bổ sung chú thích rõ ràng.
+ #### Hinh - Đức: Tổng kết 
+  * Hoàn thiện Báo cáo (trình bày đầy đủ cơ sở lý thuyết, kiến trúc pipeline và bảng số liệu thực nghiệm).
   * Thiết kế Slide báo cáo.
+
 ## 5. CẤU TRÚC THƯ MỤC DỰ ÁN
 
 ```text
-pcb-defect-detection/
-├── README.md                 # Tài liệu đặc tả và hướng dẫn dự án
-├── requirements.txt          # Danh sách thư viện (opencv-python, numpy, matplotlib)
-├── data/                     # Thư mục chứa các cặp ảnh mẫu thử nghiệm
-│   ├── sample_01_temp.jpg
-│   └── sample_01_test.jpg
+PCB-Project/
+├── README.md                 # Tổng quan và phân việc
+├── requirements.txt          # Danh sách thư viện (opencv-python, numpy matplotlib)
+├── data/                     # Dataset 
+│   ├── PCBData/              # DeepPCB
+│   └── PKU-Market-PCB/       # Dataset phụ (ảnh màu)
 ├── crops/                    # Thư mục lưu các đốm lỗi vừa cắt ra
-├── results/                  # Thư mục lưu ảnh kết quả đã đóng khung đỏ
+├── results/                  # Ảnh kết quả đã đóng khung đỏ
 ├── module_preprocess.py      
 ├── module_detection.py       
-└── main.py                   
+├── main.py                   
 ```
+
 
 ---
 
@@ -128,3 +128,6 @@ pcb-defect-detection/
 1. File mô hình phân loại (`model.pkl` hoặc tương đương) đạt độ chính xác cao trên các đốm lỗi cắt ra.
 2. Ứng dụng Desktop chạy ổn định, thao tác chọn ảnh và bấm nút kiểm tra trực tiếp.
 3. Bảng số liệu đo đạc thực nghiệm định lượng chi tiết trên 500 ảnh Test của DeepPCB.
+4. Mã nguồn hoàn hiện
+5. Bảng đánh giá và phân tích so sánh trên 2 tập dữ liệu (DeepPCB và PKU-Market-PCB).
+6. Báo cáo và slide

@@ -13,11 +13,35 @@ from module_preprocess import align_images, detect_difference
 from module_detection import extract_bounding_boxes, crop_defect_patches
 
 
+def find_image_pairs(directory: str = 'data') -> list:
+    pairs = []
+
+    for root, _dirs, files in os.walk(directory):
+        file_set = set(files)
+
+        for name in files:
+            base, ext = os.path.splitext(name)
+            if not base.endswith('_test'):
+                continue
+
+            # 00041000_test.jpg -> 00041000_temp.jpg
+            img_id = base[:-len('_test')]
+            temp_name = img_id + '_temp' + ext
+
+            if temp_name in file_set:
+                pairs.append((name, temp_name, root))
+
+    # Sắp xếp theo mã ảnh để kết quả ổn định giữa các lần chạy
+    pairs.sort(key=lambda item: item[0].lower())
+    return pairs
+
+
 def load_and_verify_images(
     test_filename: str = '92000000_test.jpg',
     temp_filename: str = '92000000_temp.jpg',
     directory: str = 'data'
 ):
+
     if not os.path.exists(directory):
         if os.path.exists('/content/sample_data'):
             directory = '/content/sample_data'
@@ -27,10 +51,20 @@ def load_and_verify_images(
     test_path = os.path.join(directory, test_filename)
     temp_path = os.path.join(directory, temp_filename)
 
+    #quét xuống để tìm đúng cặp file theo tên.
+    if not os.path.exists(test_path) or not os.path.exists(temp_path):
+        for root, _dirs, files in os.walk(directory):
+            if test_filename in files and temp_filename in files:
+                test_path = os.path.join(root, test_filename)
+                temp_path = os.path.join(root, temp_filename)
+                directory = root
+                break
+
     # Kiểm tra sự tồn tại trên ổ đĩa vật lý
     if not os.path.exists(test_path) or not os.path.exists(temp_path):
         raise FileNotFoundError(
             f"\n[LỖI] Không tìm thấy file ảnh tại thư mục: '{directory}'\n"
+            f"       Cần: {test_filename} và {temp_filename}\n"
         )
 
     # Đọc ảnh gốc ở dạng grayscale để xử lý vi sai
@@ -55,7 +89,7 @@ def draw_results(img_test: np.ndarray, boxes: list) -> np.ndarray:
     else:
         img_annotated = img_test.copy()
 
-    red_color = (0, 0, 255)  
+    red_color = (0, 0, 255)
 
     for idx, (x, y, w, h) in enumerate(boxes, start=1):
         # 1. Vẽ ô chữ nhật màu đỏ bao quanh lỗi (độ dày nét = 2)
@@ -93,6 +127,7 @@ def draw_results(img_test: np.ndarray, boxes: list) -> np.ndarray:
         )
     return img_annotated
 
+
 # hàm dọn output
 def clean_output_directories(directories: list = None) -> int:
     """
@@ -122,25 +157,27 @@ def clean_output_directories(directories: list = None) -> int:
     return deleted_count
 
 
-# hàm main
-def main():
-    start_total_time = time.time()
+def process_pair(test_filename: str, temp_filename: str, directory: str) -> tuple:
+    """
+    Chạy toàn bộ pipeline trên 1 cặp ảnh.
 
-    # Dọn dẹp output cũ trước khi chạy
-    clean_output_directories(['crops', 'results'])
+    Trả về: (boxes, crop_paths, output_path, thời_gian_giây)
+    """
+    start = time.time()
 
     # 1. Tải và kiểm tra ảnh đầu vào
-    (img_test_gray, img_temp_gray), (img_test_color, img_temp_color) = load_and_verify_images(
-        test_filename='92000000_test.jpg',
-        temp_filename='92000000_temp.jpg',
-        directory='data'
-    )
+    (img_test_gray, img_temp_gray), (img_test_color, img_temp_color) = \
+        load_and_verify_images(
+            test_filename=test_filename,
+            temp_filename=temp_filename,
+            directory=directory
+        )
 
     # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (ORB & Homography)
     try:
         img_test_aligned = align_images(img_temp_color, img_test_color)
     except Exception as exc:
-        print(f"[CẢNH BÁO] Căn chỉnh thất bại: {exc} — dùng ảnh chưa căn chỉnh")
+        print(f"    [CẢNH BÁO] Căn chỉnh thất bại: {exc} — dùng ảnh chưa căn chỉnh")
         img_test_aligned = img_test_color
 
     # 3. Trừ vi sai và nhị phân hóa Otsu, khử nhiễu Morphology
@@ -149,43 +186,94 @@ def main():
     # 4. Tìm Contours và trích xuất Bounding Boxes
     boxes = extract_bounding_boxes(diff_mask, min_area=20)
 
-    # 5. Cắt và lưu các ảnh con đốm lỗi (Crops)
-    crop_dir = "crops"
-    #Xoa crop cu de tranh file thua tu lan chay truoc
-    if os.path.isdir(crop_dir):
-        for name in os.listdir(crop_dir):
-            path = os.path.join(crop_dir, name)
-            if os.path.isfile(path):
-                os.remove(path)
-                
-    crop_paths = crop_defect_patches(img_test_aligned, boxes, output_dir=crop_dir, padding=5)            
-                
+    # 5. Cắt và lưu các ảnh con đốm lỗi (mỗi ảnh 1 thư mục riêng)
+    base, _ext = os.path.splitext(test_filename)
+    img_id = base[:-len('_test')] if base.endswith('_test') else base
+    crop_dir = os.path.join('crops', img_id)
+    crop_paths = crop_defect_patches(
+        img_test_aligned, boxes, output_dir=crop_dir, padding=5
+    )
 
-    # 6. Đóng khung đỏ và lưu ảnh kết quả vào thư mục 'results/'
-    results_dir = "results"
+    # 6. Đóng khung đỏ và lưu ảnh kết quả (tên file theo mã ảnh)
+    results_dir = 'results'
     os.makedirs(results_dir, exist_ok=True)
     img_result = draw_results(img_test_aligned, boxes)
-    output_result_path = os.path.join(results_dir, "result_92000000.jpg")
-    cv2.imwrite(output_result_path, img_result)
+    output_path = os.path.join(results_dir, f'result_{img_id}.jpg')
+    cv2.imwrite(output_path, img_result)
 
-    # In báo cáo kết quả
+    elapsed = time.time() - start
+    return boxes, crop_paths, output_path, elapsed
+
+
+# hàm main
+def main():
+    """Tự động chạy pipeline trên TẤT CẢ cặp ảnh tìm thấy trong data/."""
+    start_total_time = time.time()
+
+    # Dọn dẹp output cũ MỘT LẦN trước khi chạy
+    clean_output_directories(['crops', 'results'])
+    os.makedirs('results', exist_ok=True)
+
+    # Tìm mọi cặp ảnh trong data/ (kể cả thư mục con)
+    pairs = find_image_pairs('data')
+    if not pairs:
+        raise FileNotFoundError(
+            "\n[LỖI] Không tìm thấy cặp ảnh nào trong 'data'.\n"
+            "       Cần file <mã>_test.jpg và <mã>_temp.jpg cùng thư mục.\n"
+        )
+
+    print(f" Tìm thấy {len(pairs)} cặp ảnh trong 'data'")
+    print("=" * 65)
+
+    total_defects = 0
+    total_crops = 0
+    done = 0
+
+    for idx, (test_name, temp_name, folder) in enumerate(pairs, start=1):
+        base, _ext = os.path.splitext(test_name)
+        img_id = base[:-len('_test')] if base.endswith('_test') else base
+        print(f"\n[{idx}/{len(pairs)}] {img_id}")
+
+        try:
+            boxes, crop_paths, output_path, elapsed = process_pair(
+                test_name, temp_name, folder
+            )
+        except Exception as exc:
+            print(f"    [LỖI] {exc}")
+            continue
+
+        done += 1
+        total_defects += len(boxes)
+        total_crops += len(crop_paths)
+
+        print(f"    Số lỗi phát hiện : {len(boxes)}")
+        print(f"    Số crop đã lưu  : {len(crop_paths)}")
+        print(f"    Thời gian        : {elapsed:.3f} giây")
+        print(f"    Ảnh kết quả      : {output_path}")
+
+        # Nếu chỉ có 1 cặp thì in chi tiết toạ độ như bản cũ
+        if len(pairs) == 1:
+            print(f"\n{'STT':<5} | {'Tọa độ (x, y)':<15} | "
+                  f"{'Kích thước (w, h)':<19} | {'Diện tích':>10}")
+            print("-" * 58)
+            for i, (x, y, w, h) in enumerate(boxes, start=1):
+                coord_str = f"({x:>3}, {y:>3})"
+                size_str = f"{w:>3} x {h:>3} px"
+                area_str = f"{w * h:>5} px"
+                print(f"#{i:<4} | {coord_str:<15} | {size_str:<19} | {area_str:>10}")
+            print("-" * 58)
+
+    # Tổng kết
     total_time = time.time() - start_total_time
-    print(" KET QUA:    ")
-    print(f"- Tổng số khuyết tật phát hiện: {len(boxes)}")
-    print(f"- Tổng thời gian xử lý:         {total_time:.3f} giây\n")
-    print(f"{'STT':<5} | {'Tọa độ (x, y)':<15} | {'Kích thước (w, h)':<19} | {'Diện tích':>10}")
-    print("-" * 58)
-    for idx, (x, y, w, h) in enumerate(boxes, start=1):
-        coord_str = f"({x:>3}, {y:>3})"
-        size_str = f"{w:>3} x {h:>3} px"
-        area_str = f"{w * h:>5} px"
-        print(f"#{idx:<4} | {coord_str:<15} | {size_str:<19} | {area_str:>10}")
-    print("-" * 58)
-    print(f"Đã lưu {len(crop_paths)} ảnh đốm lỗi trong thư mục '{crop_dir}/'")
-    print(f"Ảnh kết quả trực quan hóa: {output_result_path}")
+    print("\n" + "=" * 65)
+    print(" KET QUA TONG HOP:")
+    print(f"- Số cặp chạy được      : {done}/{len(pairs)}")
+    print(f"- Tổng số lỗi phát hiện : {total_defects}")
+    print(f"- Tổng số crop đã lưu   : {total_crops}")
+    print(f"- Tổng thời gian        : {total_time:.3f} giây")
+    print(f"- Trung bình            : {total_time / max(done, 1):.3f} giây/cặp")
     print("=" * 65)
 
 
 if __name__ == '__main__':
     main()
-
