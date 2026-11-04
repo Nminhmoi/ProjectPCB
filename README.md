@@ -78,8 +78,29 @@ Mỗi thành viên chịu trách nhiệm module độc lập và bắt buộc tu
 * Viết luồng chạy chính `main.py`, in log chi tiết ra Terminal (số lượng lỗi, tọa độ, thời gian xử lý) và lưu ảnh kết quả vào `results/`.
 * Chạy kiểm thử trên 10 cặp ảnh DeepPCB để chuẩn bị báo cáo tiến độ.
 
----
+### Buổi 3:
+ #### Nam Anh — Script Đánh giá Định lượng & Đo đạc Thực nghiệm (`evaluate.py`):
+* Viết script `evaluate.py` tự động chạy hàng loạt trên 500 ảnh test của DeepPCB.
+  * Đo đạc các chỉ số: IoU trung bình, Precision, Recall, Miss Rate.
+  * Lập bảng số liệu và biểu đồ ma trận nhầm lẫn (Confusion Matrix) để đưa vào báo cáo tiến độ.pth`) và viết hàm `predict_defect(crop_img) -> label_name`.
+ #### Minh — Dữ liệu & Huấn luyện Mô hình Phân loại (`module_classification.py`):
+  * Thu thập và gán nhãn các đốm lỗi từ tập train để tạo bộ dữ liệu huấn luyện.
+  * Trích xuất đặc trưng và huấn luyện mô hình phân loại 6 loại lỗi.
+  * Xuất file mô hình đã huấn luyện (VD: `model.pkl`).
+  #### Hinh — Cắt lỗi & Xây dựng Giao diện Desktop (`gui_app.py`):
+ * Thiết kế và lập trình giao diện Desktop: kết nối pipeline từ tiền xử lý, định vị đến phân loại lên giao diện bấm nút.
 
+### Buổi 4:
+#### Nam Anh — Thử nghiệm & Thích ứng trên Dataset PKU-Market-PCB:
+  * Bổ sung bước tiền xử lý ảnh màu (chuyển đổi HSV/Lab, cân bằng sáng CLAHE để khử bóng phản xạ bề mặt kim loại).
+  * Chạy thử nghiệm và phân tích ưu/nhược điểm của thuật toán khi gặp ảnh bo mạch thực tế.
+#### Minh — Đóng gói ứng dụng Desktop:
+  * Tối ưu hóa kích thước mô hình và tốc độ nạp ảnh.
+  * Đóng gói mã nguồn hoàn chỉnh (nếu có thể thì đóng gói file .exe (PyInstaller))
+#### Hinh — Tổng kết đồ án & Báo cáo:
+ * Rà soát, chuẩn hóa toàn bộ mã nguồn của nhóm, bổ sung chú thích rõ ràng.
+ * Hoàn thiện Báo cáo (trình bày đầy đủ cơ sở lý thuyết, kiến trúc pipeline và bảng số liệu thực nghiệm).
+  * Thiết kế Slide báo cáo.
 ## 5. CẤU TRÚC THƯ MỤC DỰ ÁN
 
 ```text
@@ -103,3 +124,7 @@ pcb-defect-detection/
 2. Căn chỉnh ảnh chính xác, ảnh trừ vi sai không bị viền trắng bao quanh đường mạch.
 3. Không bỏ sót lỗi mắt thường nhìn thấy rõ (Đảm bảo $\text{Recall} \ge 95\%$).
 4. Các đốm lỗi được cắt chính xác và lưu đầy đủ vào thư mục `crops/`.
+## 7, TIÊU CHUẨN NGHIỆM THU BUỔI 3
+1. File mô hình phân loại (`model.pkl` hoặc tương đương) đạt độ chính xác cao trên các đốm lỗi cắt ra.
+2. Ứng dụng Desktop chạy ổn định, thao tác chọn ảnh và bấm nút kiểm tra trực tiếp.
+3. Bảng số liệu đo đạc thực nghiệm định lượng chi tiết trên 500 ảnh Test của DeepPCB.
