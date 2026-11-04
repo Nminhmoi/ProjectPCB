@@ -37,8 +37,8 @@ def find_image_pairs(directory: str = 'data') -> list:
 
 
 def load_and_verify_images(
-    test_filename: str = '92000000_test.jpg',
-    temp_filename: str = '92000000_temp.jpg',
+    test_filename: str,
+    temp_filename: str,
     directory: str = 'data'
 ):
 
