@@ -1,4 +1,3 @@
-#Minh: Contours, Lọc Bounding Box & Cắt ảnh đốm lỗi ==> Output: danh sách tọa độ, hiển thị các ảnh con vừa crop
 import cv2
 import os
 

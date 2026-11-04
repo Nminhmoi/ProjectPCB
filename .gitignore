@@ -1,6 +1,8 @@
 # ===== Output sinh ra khi chạy pipeline =====
 crops/
 results/
+tools/
+docs/
 
 # ===== Dataset =====
 # Chỉ giữ 2 ảnh mẫu bắt buộc để main.py chạy được trên máy mới.

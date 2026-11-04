@@ -1,4 +1,3 @@
-#Nam Anh: Căn chỉnh ORB & Trừ vi sai ==> Output: binary image đốm lỗi
 import cv2
 import numpy as np
 
@@ -35,7 +34,7 @@ def align_images(
         if img_test.shape[2] == 3:
             gray_test = cv2.cvtColor(img_test, cv2.COLOR_BGR2GRAY)
         elif img_test.shape[2] == 4:
-            gray_test = cv2.cvtColor(img_template, cv2.COLOR_BGR2GRAY)
+            gray_test = cv2.cvtColor(img_test, cv2.COLOR_BGR2GRAY)
         else:
             raise ValueError("Test co so kenh anh khong hop le!")
     else: 
@@ -55,8 +54,8 @@ def align_images(
         raise RuntimeError(f"Chi co {len(matches)} cap khop, can it nhat 4 de tinh homography")
 
     matches = sorted(matches, key = lambda x: x.distance)
-    num_keeps = max((int(len(matches)) * keep_percentage),4)
-    good_matches = matches[num_keeps]
+    num_keeps = min(len(matches), max(int(len(matches) * keep_percentage),4))
+    good_matches = matches[:num_keeps]
 
     pts_test = np.float32([kp_test[m.queryIdx].pt for m in good_matches]).reshape(-1,1,2)
 
@@ -72,7 +71,7 @@ def align_images(
     num_inliers = np.count_nonzero(inliers)
     inlier_ratio = num_inliers/len(good_matches)
 
-    if num_inliers <4 or inlier_ratio <0.25:
+    if num_inliers < 12 or inlier_ratio < 0.15:
         raise RuntimeError(f"Homography khong dang tin cay: "
             f"{num_inliers} inliers, "
             f"ty le {inlier_ratio:.2f}.")
@@ -135,7 +134,7 @@ def detect_difference(
         else:
             raise ValueError("Test co so kenh anh khong hop le!")
     elif img_test_aligned.ndim == 2:
-        gray_test_aligned = img_test_aligned
+        gray_test = img_test_aligned
     else:
         raise ValueError("Test khong phai anh hop le")
 

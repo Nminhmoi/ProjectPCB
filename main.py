@@ -1,6 +1,3 @@
-# Hinh: Tích hợp, Hiển thị & Thử nghiệm (main.py)
-# Output: Hiển thị ảnh gốc với các ô chữ nhật màu đỏ bao quanh lỗi kèm báo cáo log chi tiết
-
 import os
 import time
 import cv2
