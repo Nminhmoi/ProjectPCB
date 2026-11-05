@@ -5,11 +5,12 @@ tools/
 docs/
 
 # ===== Dataset =====
-# Chỉ giữ 2 ảnh mẫu bắt buộc để main.py chạy được trên máy mới.
-# Mọi dataset/ảnh khác đặt trong data/ sẽ không bị commit.
+# Bộ dữ liệu nhỏ (PCBData) được commit để main.py chạy được trên máy mới.
+# Dataset lớn khác đặt trong data/ sẽ không bị commit.
 data/*
-!data/92000000_temp.jpg
-!data/92000000_test.jpg
+!data/PCBData/
+!data/PCBData/**
+data/PKU-Market-PCB/
 
 # ===== Python =====
 __pycache__/
