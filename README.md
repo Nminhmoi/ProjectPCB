@@ -24,7 +24,7 @@ Xây dựng pipeline xử lý ảnh số tự động so sánh cặp ảnh bo m�
   4. Gai đồng (Spur)
   5. Đồng thừa / Thiếu đồng (Spurious copper)
   6. Lỗi lỗ khoan (Pin-hole / Missing hole)
-* **Phương pháp kỹ thuật (Milestone 2):** Thuần túy **Xử lý ảnh số cổ điển (Classical Computer Vision)** bằng OpenCV, không sử dụng Deep Learning.
+* **Phương pháp kỹ thuật (Milestone 2):** Thuần túy **Xử lý ảnh số cổ điển (Classical Computer Vision)** bằng OpenCV, sử dụng machine learning để phân loại.
 
 ### Ngoài phạm vi (Out-of-Scope):
 * Không kiểm tra bo mạch đã hàn linh kiện (PCBA/SMT 3D).
@@ -57,8 +57,6 @@ Pipeline xử lý ảnh gồm chuỗi 8 bước tuần tự:
 
 ## 4. PHÂN CHIA NHIỆM VỤ 
 
-Mỗi thành viên chịu trách nhiệm module độc lập và bắt buộc tuân thủ đúng tên hàm và kiểu dữ liệu:
-
 ### Buổi 2:
 #### Nam Anh: Tiền xử lý & Trừ vi sai (`module_preprocess.py`)
 * `align_images(img_template, img_test) -> img_test_aligned`
@@ -87,8 +85,8 @@ Mỗi thành viên chịu trách nhiệm module độc lập và bắt buộc tu
   * Chạy thử nghiệm và phân tích ưu/nhược điểm của thuật toán khi gặp ảnh bo mạch thực tế.
   
  #### Minh — Dữ liệu & Huấn luyện Mô hình Phân loại (`module_classification.py`), Đóng gói ứng dụng Desktop:
-  * Thu thập và gán nhãn các đốm lỗi từ tập train để tạo bộ dữ liệu huấn luyện.
-  * Trích xuất đặc trưng và huấn luyện mô hình phân loại 6 loại lỗi.
+  * Thu thập và gán nhãn các đốm lỗi từ tập train để tạo bộ dữ liệu huấn luyện
+  * Trích xuất đặc trưng và huấn luyện mô hình phân loại 6 loại lỗi (CNN)
   * Xuất file mô hình đã huấn luyện (VD: `model.pkl`).
   * Tối ưu hóa kích thước mô hình và tốc độ nạp ảnh.
   * Đóng gói mã nguồn hoàn chỉnh (nếu có thể thì đóng gói file .exe (PyInstaller))
@@ -103,9 +101,9 @@ Mỗi thành viên chịu trách nhiệm module độc lập và bắt buộc tu
 ## 5. CẤU TRÚC THƯ MỤC DỰ ÁN
 
 ```text
-PCB-Project/
+Project-PCB/
 ├── README.md                 # Tổng quan và phân việc
-├── requirements.txt          # Danh sách thư viện (opencv-python, numpy matplotlib)
+├── requirements.txt          # Danh sách thư viện (opencv-python, numpy, matplotlib)
 ├── data/                     # Dataset 
 │   ├── PCBData/              # DeepPCB
 │   └── PKU-Market-PCB/       # Dataset phụ (ảnh màu)
