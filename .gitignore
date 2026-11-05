@@ -1,10 +1,10 @@
-# ===== Output sinh ra khi chạy pipeline =====
+# Output sinh ra khi chạy pipeline
 crops/
 results/
 tools/
 docs/
 
-# ===== Dataset =====
+# Dataset
 # Bộ dữ liệu nhỏ (PCBData) được commit để main.py chạy được trên máy mới.
 # Dataset lớn khác đặt trong data/ sẽ không bị commit.
 data/*
