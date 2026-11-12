@@ -10,7 +10,9 @@ docs/
 data/*
 !data/PCBData/
 !data/PCBData/**
-data/PKU-Market-PCB/
+# PKU-Market-PCB: commit manifest + labels, không commit ảnh gốc (~1.9 GB).
+!data/PKU-Market-PCB/
+data/PKU-Market-PCB/raw/
 
 # ===== Python =====
 __pycache__/

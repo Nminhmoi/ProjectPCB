@@ -1,0 +1,7 @@
+﻿class_id,class_name
+1,Open_circuit
+2,Short
+3,Mouse_bite
+4,Spur
+5,Spurious_copper
+6,Missing_hole

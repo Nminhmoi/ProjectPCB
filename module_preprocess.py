@@ -1,6 +1,30 @@
 import cv2
 import numpy as np
 
+
+def _gray_clahe(image: np.ndarray) -> np.ndarray:
+    """Chuyen anh sang gray + can bang sang cuc bo CLAHE.
+
+    Phuong phap thang trong khao sat RGB -> Binary (experiments/exp_rgb2binary.py):
+    CLAHE giu bien canh tot nhat (0.356) va on dinh voi anh sang lech (IoU 0.870),
+    dong thoi giam hien tuong loa sang tren be mat kim loai cua PCB.
+    """
+    if image.ndim == 3:
+        if image.shape[2] == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        elif image.shape[2] == 4:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
+        else:
+            raise ValueError("Anh co so kenh mau khong hop le!")
+    elif image.ndim == 2:
+        gray = image
+    else:
+        raise ValueError("Anh dau vao phai la anh grayscale hoac anh mau")
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    return clahe.apply(gray)
+
+
 #Can chinh anh test theo anh template
 def align_images(
         img_template: np.ndarray,
@@ -135,25 +159,9 @@ def detect_difference(
     if img_template is None or img_test_aligned is None:
         raise ValueError("Anh dau vao khong hop le.")
 
-    if img_template.ndim == 3:
-        if img_template.shape[2] in (3, 4):
-            gray_template = cv2.cvtColor(img_template, cv2.COLOR_BGR2GRAY)
-        else:
-            raise ValueError("Template co so kenh anh khong hop le!")
-    elif img_template.ndim == 2:
-        gray_template = img_template
-    else:
-        raise ValueError("Template khong phai anh hop le")
-
-    if img_test_aligned.ndim == 3:
-        if img_test_aligned.shape[2] in (3, 4):
-            gray_test = cv2.cvtColor(img_test_aligned, cv2.COLOR_BGR2GRAY)
-        else:
-            raise ValueError("Test co so kenh anh khong hop le!")
-    elif img_test_aligned.ndim == 2:
-        gray_test = img_test_aligned
-    else:
-        raise ValueError("Test khong phai anh hop le")
+    # Chuyen gray + CLAHE (phuong phap thang cua khao sat RGB -> Binary).
+    gray_template = _gray_clahe(img_template)
+    gray_test = _gray_clahe(img_test_aligned)
 
     if gray_template.shape != gray_test.shape:
         raise ValueError("Kich thuoc template khong giong nhau")

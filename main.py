@@ -1,3 +1,4 @@
+import argparse
 import os
 import time
 import cv2
@@ -12,73 +13,8 @@ from module_preprocess import align_images, detect_difference
 # 2. Import module phát hiện & cắt đốm lỗi
 from module_detection import extract_bounding_boxes, crop_defect_patches
 
-
-def find_image_pairs(directory: str = 'data') -> list:
-    pairs = []
-
-    for root, _dirs, files in os.walk(directory):
-        file_set = set(files)
-
-        for name in files:
-            base, ext = os.path.splitext(name)
-            if not base.endswith('_test'):
-                continue
-
-            # 00041000_test.jpg -> 00041000_temp.jpg
-            img_id = base[:-len('_test')]
-            temp_name = img_id + '_temp' + ext
-
-            if temp_name in file_set:
-                pairs.append((name, temp_name, root))
-
-    # Sắp xếp theo mã ảnh để kết quả ổn định giữa các lần chạy
-    pairs.sort(key=lambda item: item[0].lower())
-    return pairs
-
-
-def load_and_verify_images(
-    test_filename: str,
-    temp_filename: str,
-    directory: str = 'data'
-):
-
-    if not os.path.exists(directory):
-        if os.path.exists('/content/sample_data'):
-            directory = '/content/sample_data'
-        elif os.path.exists('data'):
-            directory = 'data'
-
-    test_path = os.path.join(directory, test_filename)
-    temp_path = os.path.join(directory, temp_filename)
-
-    #quét xuống để tìm đúng cặp file theo tên.
-    if not os.path.exists(test_path) or not os.path.exists(temp_path):
-        for root, _dirs, files in os.walk(directory):
-            if test_filename in files and temp_filename in files:
-                test_path = os.path.join(root, test_filename)
-                temp_path = os.path.join(root, temp_filename)
-                directory = root
-                break
-
-    # Kiểm tra sự tồn tại trên ổ đĩa vật lý
-    if not os.path.exists(test_path) or not os.path.exists(temp_path):
-        raise FileNotFoundError(
-            f"\n[LỖI] Không tìm thấy file ảnh tại thư mục: '{directory}'\n"
-            f"       Cần: {test_filename} và {temp_filename}\n"
-        )
-
-    # Đọc ảnh gốc ở dạng grayscale để xử lý vi sai
-    img_test_gray = cv2.imread(test_path, cv2.IMREAD_GRAYSCALE)
-    img_temp_gray = cv2.imread(temp_path, cv2.IMREAD_GRAYSCALE)
-
-    # Đọc thêm ảnh màu để phục vụ việc căn chỉnh hoặc vẽ khung
-    img_test_color = cv2.imread(test_path)
-    img_temp_color = cv2.imread(temp_path)
-
-    if img_test_gray is None or img_temp_gray is None:
-        raise ValueError("Không thể giải mã dữ liệu ảnh. File có thể bị hỏng!")
-
-    return (img_test_gray, img_temp_gray), (img_test_color, img_temp_color)
+# 3. Import loader dùng chung (đọc pairs_manifest.csv + labels/)
+from dataset_utils import find_pairs, load_image
 
 
 # đóng khung đỏ đốm lỗi
@@ -157,21 +93,24 @@ def clean_output_directories(directories: list = None) -> int:
     return deleted_count
 
 
-def process_pair(test_filename: str, temp_filename: str, directory: str) -> tuple:
+def process_pair(pair: dict) -> tuple:
     """
     Chạy toàn bộ pipeline trên 1 cặp ảnh.
+
+    `pair` là dict do `dataset_utils.find_pairs` trả về, gồm:
+    pair_id, test_path, template_path, class_name, annotation_path, ...
 
     Trả về: (boxes, crop_paths, output_path, thời_gian_giây)
     """
     start = time.time()
 
-    # 1. Tải và kiểm tra ảnh đầu vào
-    (img_test_gray, img_temp_gray), (img_test_color, img_temp_color) = \
-        load_and_verify_images(
-            test_filename=test_filename,
-            temp_filename=temp_filename,
-            directory=directory
-        )
+    # 1. Tải ảnh màu (test + template)
+    test_path = pair["test_path"]
+    temp_path = pair["template_path"]
+    img_id = pair["pair_id"]
+
+    img_test_color = load_image(test_path)
+    img_temp_color = load_image(temp_path)
 
     # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (ORB & Homography)
     try:
@@ -187,9 +126,7 @@ def process_pair(test_filename: str, temp_filename: str, directory: str) -> tupl
     boxes = extract_bounding_boxes(diff_mask, min_area=20)
 
     # 5. Cắt và lưu các ảnh con đốm lỗi (mỗi ảnh 1 thư mục riêng)
-    base, _ext = os.path.splitext(test_filename)
-    img_id = base[:-len('_test')] if base.endswith('_test') else base
-    crop_dir = os.path.join('crops', img_id)
+    crop_dir = os.path.join('crops', str(img_id))
     crop_paths = crop_defect_patches(
         img_test_aligned, boxes, output_dir=crop_dir, padding=5
     )
@@ -205,39 +142,65 @@ def process_pair(test_filename: str, temp_filename: str, directory: str) -> tupl
     return boxes, crop_paths, output_path, elapsed
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Chạy pipeline căn chỉnh + phát hiện lỗi trên cặp ảnh PCB."
+    )
+    parser.add_argument(
+        "--data-dir",
+        default="data",
+        help="Thư mục chứa pairs_manifest.csv (mặc định: data).",
+    )
+    parser.add_argument(
+        "--pair",
+        default=None,
+        help="Chỉ chạy một cặp theo pair_id trong manifest, ví dụ: 01_short_01.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Chỉ chạy N cặp đầu tiên (0 = chạy tất cả).",
+    )
+    return parser.parse_args()
+
+
 # hàm main
 def main():
-    """Tự động chạy pipeline trên TẤT CẢ cặp ảnh tìm thấy trong data/."""
+    """Tự động chạy pipeline trên các cặp ảnh tìm thấy trong data/."""
+    args = parse_args()
     start_total_time = time.time()
 
     # Dọn dẹp output cũ MỘT LẦN trước khi chạy
     clean_output_directories(['crops', 'results'])
     os.makedirs('results', exist_ok=True)
 
-    # Tìm mọi cặp ảnh trong data/ (kể cả thư mục con)
-    pairs = find_image_pairs('data')
+    # Tìm mọi cặp ảnh từ manifest
+    pairs = find_pairs(args.data_dir)
+    if args.pair:
+        pairs = [pair for pair in pairs if pair["pair_id"] == args.pair]
+    if args.limit > 0:
+        pairs = pairs[:args.limit]
+
     if not pairs:
         raise FileNotFoundError(
-            "\n[LỖI] Không tìm thấy cặp ảnh nào trong 'data'.\n"
-            "       Cần file <mã>_test.jpg và <mã>_temp.jpg cùng thư mục.\n"
+            f"\n[LỖI] Không tìm thấy cặp ảnh nào trong '{args.data_dir}'.\n"
+            "       Cần pairs_manifest.csv (chạy experiments/build_pairs.py trước).\n"
         )
 
-    print(f" Tìm thấy {len(pairs)} cặp ảnh trong 'data'")
+    print(f" Tìm thấy {len(pairs)} cặp ảnh trong '{args.data_dir}'")
     print("=" * 65)
 
     total_defects = 0
     total_crops = 0
     done = 0
 
-    for idx, (test_name, temp_name, folder) in enumerate(pairs, start=1):
-        base, _ext = os.path.splitext(test_name)
-        img_id = base[:-len('_test')] if base.endswith('_test') else base
+    for idx, pair in enumerate(pairs, start=1):
+        img_id = pair["pair_id"]
         print(f"\n[{idx}/{len(pairs)}] {img_id}")
 
         try:
-            boxes, crop_paths, output_path, elapsed = process_pair(
-                test_name, temp_name, folder
-            )
+            boxes, crop_paths, output_path, elapsed = process_pair(pair)
         except Exception as exc:
             print(f"    [LỖI] {exc}")
             continue

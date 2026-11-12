@@ -75,10 +75,70 @@ Khảo sát ảnh hưởng của số lượng đặc trưng tối đa lên sai 
 ---
 
 ## 3. XỬ LÝ ẢNH MÀU CÔNG NGHIỆP & BÓC TÁCH ĐỐM LỖI
-* **Xử lý ảnh màu (RGB $\rightarrow$ Binary):**
-  * Áp dụng cân bằng sáng thích nghi **CLAHE** để triệt tiêu hiện tượng lóa sáng do đèn chiếu camera phản xạ trên bề mặt mối hàn kim loại.
-  * Chuyển đổi sang không gian màu **HSV / Lab** để tách biệt lớp đồng với lớp phủ bảo vệ bo mạch (Solder Mask).
-* **Kết quả bóc tách:** Toàn bộ các đốm khuyết tật được khoanh vùng Bounding Box và cắt lưu tự động vào thư mục `crops/`.
+
+### 3.1. Sinh manifest cặp ảnh Template – Test từ PKU-Market-PCB
+Bộ dữ liệu gốc lưu ảnh bo mạch sạch (`PCB_USED/`) và ảnh lỗi (`images/<Defect>/`) riêng biệt. Nhóm giữ **nguyên cấu trúc gốc** trong `data/PKU-Market-PCB/raw/` và chỉ sinh thêm manifest + nhãn, **không nhân bản ảnh** (tránh lặp template 693 lần và tránh phụ thuộc đường dẫn tuyệt đối).
+
+Script `experiments/build_pairs.py` thực hiện:
+
+1. Ghép `PCB_USED/<board>.JPG` với `images/<Defect>/<board>_<defect>_<n>.jpg` theo mã bo mạch.
+2. Parse XML trong `Annotations/<Defect>/`, kiểm tra tên lớp, bbox nằm trong ảnh và kích thước test khớp template.
+3. Ghi `data/PKU-Market-PCB/pairs_manifest.csv` (đường dẫn tương đối theo vị trí manifest).
+4. Ghi `data/PKU-Market-PCB/labels/<pair_id>.txt` theo định dạng `x y w h class_id`.
+5. Ghi `data/PKU-Market-PCB/classes.csv` (class_id khớp thứ tự 6 lỗi trong README).
+
+| Lớp lỗi | class_id | Số cặp |
+| :--- | :---: | :---: |
+| Open_circuit | 1 | 116 |
+| Short | 2 | 116 |
+| Mouse_bite | 3 | 115 |
+| Spur | 4 | 115 |
+| Spurious_copper | 5 | 116 |
+| Missing_hole | 6 | 115 |
+| **Tổng** | | **693** |
+
+* 10 bo mạch: `01, 04, 05, 06, 07, 08, 09, 10, 11, 12`.
+* Tổng **2.953 bounding box**, mỗi ảnh 1–6 lỗi; không thiếu file ảnh/XML, không trùng `pair_id`.
+* Kích thước ảnh test dao động từ `2240 × 1586` đến `3056 × 2530` tùy bo mạch.
+* `main.py` và `experiments/exp_rgb2binary.py` dùng chung `dataset_utils.find_pairs()` để đọc manifest.
+
+### 3.2. Kết quả khảo sát RGB → Binary (toàn bộ 693 cặp)
+Chạy `py -3.14 experiments/exp_rgb2binary.py`, đo trung bình trên 693 cặp ảnh:
+
+| Phương pháp | Thời gian (ms) | Otsu eta | Foreground (%) | Bảo toàn biên cạnh | IoU khi lệch sáng |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| `gray_otsu` (baseline) | **9.03** | 0.727 | 12.42 | 0.246 | 0.786 |
+| `lab_b_otsu` (kênh b\*) | 20.54 | 0.768 | 67.60 | 0.285 | **0.934** |
+| `lab_a_otsu` (kênh a\*) | 20.87 | **0.751** | 20.99 | 0.194 | 0.866 |
+| `clahe_otsu` (CLAHE) | 17.12 | 0.638 | 17.55 | **0.356** | 0.870 |
+
+*(Biểu đồ so sánh 4 chỉ số)*  
+![So sánh các phương pháp RGB sang nhị phân](experiments/charts/rgb2binary_metrics.png)
+
+*(Trực quan mask nhị phân của 3 cặp ảnh đầu tiên)*  
+![Trực quan mask nhị phân](experiments/charts/rgb2binary_visual.png)
+
+### 3.3. Nhận xét và lựa chọn phương pháp
+* **`gray_otsu`** có thời gian nhanh nhất (9.03 ms) nhưng bảo toàn biên cạnh thấp nhất (0.246) và kém ổn định nhất khi ánh sáng lệch (IoU 0.786) — dễ sinh viền giả khi trừ vi sai.
+* **`lab_b_otsu`** rất bền với lệch sáng (IoU 0.934) và có eta cao, nhưng tỷ lệ foreground 67.6% cho thấy mask bị "phình" gần như toàn bộ lớp đồng, không phù hợp để bóc tách đốm lỗi có kích thước nhỏ.
+* **`lab_a_otsu`** có eta cao nhất nhưng bảo toàn biên cạnh kém (0.194) nên dễ bỏ sót cấu trúc đường mạch mảnh.
+* **`clahe_otsu`** đạt **bảo toàn biên cạnh cao nhất (0.356, tăng 45% so với baseline)**, IoU lệch sáng 0.870 và thời gian 17.12 ms — vẫn dưới 20 ms/ảnh, đáp ứng yêu cầu thời gian thực. Otsu eta thấp hơn (0.638) là do CLAHE kéo giãn histogram cục bộ; chỉ số này không phản ánh chất lượng bóc tách cuối cùng.
+* **Kết luận:** chọn **CLAHE (clipLimit = 2.0, tileGridSize = 8×8) + Gaussian 3×3 + Otsu** làm phương pháp thắng và tích hợp vào pipeline.
+
+### 3.4. Tích hợp vào `module_preprocess.py` và kiểm chứng
+* Bổ sung hàm `_gray_clahe()` (gray + CLAHE) và dùng trong `detect_difference()` trước bước làm mờ / trừ vi sai.
+* `main.py` được bổ sung tham số dòng lệnh `--pair`, `--limit`, `--data-dir` để chạy nhanh một cặp hoặc một tập con.
+* Kiểm chứng trên cặp `01_short_01` (lỗi Short): phát hiện **3/3 đốm lỗi**, thời gian **1.04 giây/cặp**, bounding box định vị đúng vị trí nhãn Ground Truth:
+
+| Đối tượng | Ground Truth (xmin, ymin, xmax, ymax) | Pipeline phát hiện (x, y, w, h) |
+| :---: | :--- | :--- |
+| #1 | (538, 936, 608, 998) | (573, 961, 10, 13) |
+| #2 | (763, 1136, 828, 1201) | (787, 1164, 15, 12) |
+| #3 | (2300, 1101, 2355, 1143) | (2316, 1116, 12, 10) |
+
+> **Ghi chú:** bounding box của pipeline bám vào phần lõi vi sai có độ tương phản mạnh nên nhỏ hơn nhãn GT (GT bao trọn cả vùng lỗi). Kết quả này phù hợp để định vị lỗi; bước đánh giá IoU/Recall đầy đủ sẽ được thực hiện ở Giai đoạn 3.
+
+* **Kết quả bóc tách:** Toàn bộ đốm khuyết tật được khoanh vùng Bounding Box và cắt tự động vào thư mục `crops/`; ảnh kết quả lưu tại `results/result_<mã>.jpg`.
 
 ---
 
