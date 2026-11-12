@@ -21,6 +21,10 @@ __pycache__/
 .venv/
 venv/
 
+# ===== Jupyter =====
+.ipynb_checkpoints/
+experiments/notebook_rgb2binary/
+
 # ===== IDE / OS =====
 .vscode/
 .idea/

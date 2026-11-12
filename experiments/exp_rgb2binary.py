@@ -50,7 +50,9 @@ from dataset_utils import find_pairs, load_image  # noqa: E402
 
 import matplotlib
 
-matplotlib.use("Agg")
+# Notebook (ipykernel) cần backend inline để hiển thị ảnh; CLI dùng Agg để lưu file.
+if "ipykernel" not in sys.modules:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # Kiểu hàm: nhận ảnh BGR, trả về (mask nhị phân uint8, kênh dùng để tính Otsu).
@@ -236,7 +238,8 @@ def summarize(
     rows: List[Dict[str, object]],
 ) -> Dict[str, Dict[str, Tuple[float, float]]]:
     summary: Dict[str, Dict[str, Tuple[float, float]]] = {}
-    for method in METHODS:
+    present = [name for name in METHODS if any(r["method"] == name for r in rows)]
+    for method in present or list(METHODS):
         method_rows = [row for row in rows if row["method"] == method]
         summary[method] = {}
         for metric in (
@@ -262,7 +265,7 @@ def plot_metrics(
         ("edge_retention", "Bảo toàn biên cạnh - cao hơn tốt hơn"),
         ("illum_iou", "IoU khi lệch sáng - cao hơn tốt hơn"),
     ]
-    method_names = list(METHODS.keys())
+    method_names = list(summary.keys())
     colors = ["#4C72B0", "#DD8452", "#55A868", "#C44E52"]
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 8))
@@ -305,12 +308,13 @@ def plot_visual_comparison(
     output_path: Path,
     max_pairs: int = 3,
     max_width: int = 520,
+    method_names: List[str] | None = None,
 ) -> None:
     selected = pairs[:max_pairs]
     if not selected:
         return
 
-    method_names = list(METHODS.keys())
+    method_names = method_names or list(METHODS.keys())
     n_rows = len(selected)
     n_cols = 1 + len(method_names)
     fig, axes = plt.subplots(
@@ -415,6 +419,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Không xuất ảnh so sánh trực quan.",
     )
+    parser.add_argument(
+        "--method",
+        choices=list(METHODS) + ["all"],
+        default="all",
+        help="Chỉ chạy một phương pháp (mặc định: all).",
+    )
     return parser.parse_args()
 
 
@@ -433,6 +443,10 @@ def main() -> None:
         pairs = pairs[: args.limit]
 
     print(f"Tìm thấy {len(pairs)} cặp ảnh trong '{args.data_dir}'.")
+
+    methods = METHODS
+    if args.method != "all":
+        methods = {args.method: METHODS[args.method]}
 
     rows: List[Dict[str, object]] = []
     processed_pairs: List[Dict[str, object]] = []
@@ -456,7 +470,7 @@ def main() -> None:
                 f"{temp_path.name} khác kích thước, vẫn đo trên ảnh test."
             )
 
-        for method_name, method in METHODS.items():
+        for method_name, method in methods.items():
             metrics = evaluate_pair(
                 test_image, method, repeats=max(1, args.repeats)
             )
@@ -487,7 +501,9 @@ def main() -> None:
 
     visual_chart = charts_dir / "rgb2binary_visual.png"
     if not args.no_visual:
-        plot_visual_comparison(processed_pairs, visual_chart)
+        plot_visual_comparison(
+            processed_pairs, visual_chart, method_names=list(methods.keys())
+        )
 
     print(f"\nCSV chỉ số     : {csv_path}")
     print(f"Biểu đồ        : {metrics_chart}")
