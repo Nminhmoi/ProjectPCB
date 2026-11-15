@@ -37,6 +37,9 @@ Cách chạy:
     py -3.14 experiments/exp_blur_kernel.py --per-class 5 --noise-sigma 8
     py -3.14 experiments/exp_blur_kernel.py --theory-only
 
+Chạy full 693 cặp (4 kernel + 3 seed nhiễu, ~65 phút):
+    py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
+
 Đầu ra:
     experiments/blur_kernel_results.csv
     experiments/charts/blur_comparison.png
@@ -215,7 +218,8 @@ def evaluate_pair(pair: Dict[str, object], kernels: List[int],
     template = load_image(Path(pair["template_path"]))
     test = load_image(Path(pair["test_path"]))
     try:
-        aligned = align_images(template, test)
+        # Kiểm chứng NCC tắt: thí nghiệm này chỉ khảo sát bước làm mờ
+        aligned = align_images(template, test, min_ncc=None)
         aligned_ok = True
     except Exception:  # như main.py: căn chỉnh thất bại -> dùng ảnh chưa căn chỉnh
         aligned, aligned_ok = test, False

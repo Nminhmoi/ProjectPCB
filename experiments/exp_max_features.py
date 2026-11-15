@@ -21,12 +21,24 @@ Khảo sát tham số max_features (nfeatures của ORB) trong bước căn ch�
     - success              : vượt qua mọi kiểm tra của align_images hay không
     - time_detect/match/ransac/total_ms : thời gian từng bước (ms, trung vị)
     - recall, precision, f1: chất lượng phát hiện lỗi cuối cùng so với nhãn GT
-                             (bbox phát hiện "chạm" bbox GT)
+                             (bbox phát hiện "chạm" bbox GT; kèm F1@IoU0.3/0.5)
+    - ncc                  : điểm kiểm chứng căn chỉnh bằng điểm ảnh (P0.1). Khảo
+                             sát chạy với kiểm tra NCC TẮT để đo chất lượng ORB
+                             thô; cột ncc_reject cho biết cặp nào sẽ bị từ chối.
+
+   Tiêu chí đề xuất (P0.2): giá trị NHỎ NHẤT có tỷ lệ thành công cao nhất,
+   corner error p95 <= 1 px và F1 không kém mức tốt nhất quá 0.01. Dùng p95
+   thay cho max vì vài cặp ngoại lai (lệch tới 47 px ở MỌI mức) làm max vô nghĩa;
+   max vẫn được in ra như cảnh báo.
 
 Cách chạy:
     py -3.14 experiments/exp_max_features.py --limit 30
     py -3.14 experiments/exp_max_features.py --values 500 1000 2000 5000 10000
     py -3.14 experiments/exp_max_features.py --per-class 5 --repeats 3
+
+Chạy full 693 cặp (~40 phút với --repeats 1):
+    py -3.14 -u experiments/exp_max_features.py `
+        --values 500 1000 2000 3000 5000 10000 --repeats 1 --output-dir experiments
 
 Đầu ra:
     experiments/max_features_results.csv
@@ -58,8 +70,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dataset_utils import find_pairs, load_image  # noqa: E402
 from module_detection import extract_bounding_boxes  # noqa: E402
+from evaluation import detection_counts as count_detections, prf_from_counts  # noqa: E402
 from module_preprocess import (  # noqa: E402
     DEFAULT_MAX_FEATURES,
+    DEFAULT_MIN_NCC,
     AlignmentError,
     align_images_with_stats,
     detect_difference,
@@ -82,6 +96,7 @@ def align_orb_measured(
     gray_test: np.ndarray,
     max_features: int,
     keep_percentage: float = 0.8,
+    test_mask: Optional[np.ndarray] = None,
 ) -> Dict[str, object]:
     """Gọi `align_images_with_stats` của module chính và đổi tên khóa thời gian.
 
@@ -95,6 +110,8 @@ def align_orb_measured(
             max_features=max_features,
             keep_percentage=keep_percentage,
             detector="ORB",
+            min_ncc=None,          # khảo sát chất lượng ORB thô (P0.2)
+            test_mask=test_mask,
         )
     except AlignmentError as exc:
         stats = exc.stats
@@ -111,6 +128,7 @@ def align_orb_measured(
         "time_ransac_ms": stats.get("time_homography_ms", 0.0),
         "time_total_ms": stats.get("time_total_ms", 0.0),
         "success": bool(stats.get("success")),
+        "ncc": float(stats.get("ncc", float("nan"))),
         "H": stats.get("H"),
         "error": stats.get("error", ""),
     }
@@ -193,8 +211,7 @@ def detection_counts(
     if valid is not None:
         diff = cv2.bitwise_and(diff, valid)
     boxes = extract_bounding_boxes(diff, min_area=20)
-    gt_hit, pred_hit = match_boxes(boxes, gt_boxes)
-    return {"n_gt": len(gt_boxes), "n_pred": len(boxes), "gt_hit": gt_hit, "pred_hit": pred_hit}
+    return count_detections(boxes, gt_boxes)
 
 
 # 3. Đánh giá 1 cặp ảnh với mọi giá trị max_features
@@ -213,11 +230,13 @@ def evaluate_pair(pair: Dict[str, object], values: List[int],
 
     gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
     gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+    warped_mask = cv2.warpPerspective(np.full((h, w), 255, np.uint8), H_true, (w, h),
+                                      flags=cv2.INTER_NEAREST)
     gt_boxes = read_labels(pair.get("label_path"))
 
     rows = []
     for value in values:
-        runs = [align_orb_measured(gray_template, gray_warped, value)
+        runs = [align_orb_measured(gray_template, gray_warped, value, test_mask=warped_mask)
                 for _ in range(max(1, args.repeats))]
         res = runs[0]
         for key in ("time_detect_ms", "time_match_ms", "time_ransac_ms", "time_total_ms"):
@@ -229,6 +248,7 @@ def evaluate_pair(pair: Dict[str, object], values: List[int],
             **{k: v for k, v in res.items() if k != "H"},
             "corner_error": (corner_error(res["H"], H_true_inv, w, h)
                              if res["success"] else float("nan")),
+            "ncc_reject": bool(res["success"] and not (res["ncc"] >= DEFAULT_MIN_NCC)),
         }
         if not args.no_detection:
             # Đo phát hiện trên ẢNH GỐC, không dùng ảnh đã bị nội suy warp.
@@ -281,20 +301,26 @@ def summarize(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
             "corner_error_median": _median(r["corner_error"] for r in ok),
             "corner_error_p25": _pct((r["corner_error"] for r in ok), 25),
             "corner_error_p75": _pct((r["corner_error"] for r in ok), 75),
+            "corner_error_p95": _pct((r["corner_error"] for r in ok), 95),
             "corner_error_max": max(_finite(r["corner_error"] for r in ok), default=float("nan")),
+            "pairs_over_1px": sum(1 for r in ok if float(r["corner_error"]) > 1.0),
+            "pairs_over_5px": sum(1 for r in ok if float(r["corner_error"]) > 5.0),
+            "ncc_median": _median(r.get("ncc") for r in ok),
+            "ncc_rejects": sum(1 for r in ok if r.get("ncc_reject")),
             "time_detect_ms": _mean(r["time_detect_ms"] for r in items),
             "time_match_ms": _mean(r["time_match_ms"] for r in items),
             "time_ransac_ms": _mean(r["time_ransac_ms"] for r in items),
             "time_total_ms": _mean(r["time_total_ms"] for r in items),
+            "time_total_median_ms": _median(r["time_total_ms"] for r in items),
+            "time_total_p95_ms": _pct((r["time_total_ms"] for r in items), 95),
+            # Điều kiện đo (P2.2)
+            "cond_detector": "ORB",
+            "cond_synthetic_warp": "on",
+            "cond_ncc_check": "off",
+            "cond_match_rule": "touch_tol5 + IoU",
         }
         if "n_gt" in items[0]:
-            n_gt = sum(int(r["n_gt"]) for r in items)
-            n_pred = sum(int(r["n_pred"]) for r in items)
-            recall = sum(int(r["gt_hit"]) for r in items) / n_gt if n_gt else float("nan")
-            precision = sum(int(r["pred_hit"]) for r in items) / n_pred if n_pred else float("nan")
-            f1 = (2 * precision * recall / (precision + recall)
-                  if precision + recall > 0 else 0.0)
-            entry.update({"recall": recall, "precision": precision, "f1": f1})
+            entry.update(prf_from_counts(items))
         summary.append(entry)
     return summary
 
@@ -303,9 +329,10 @@ def recommend(summary: List[Dict[str, object]], max_corner_px: float,
               f1_tolerance: float = 0.01) -> Optional[int]:
     """Giá trị max_features NHỎ NHẤT "đủ tốt", tức là đồng thời:
       - tỷ lệ căn chỉnh thành công bằng mức cao nhất trong khảo sát,
-      - sai số góc XẤU NHẤT (không phải trung vị) <= max_corner_px. Bước trừ vi
-        sai đã chừa dung sai ±2 px (erode/dilate 5x5) nên sai số < 1 px không
-        ảnh hưởng kết quả phát hiện,
+      - sai số góc p95 <= max_corner_px (P0.2). Không dùng max: vài cặp ngoại
+        lai lệch tới ~47 px ở MỌI mức max_features (lỗi kiểm tra homography,
+        xử lý bằng NCC ở P0.1), nên max không phân biệt được các mức. Bước trừ
+        vi sai đã chừa dung sai ±2 px nên p95 < 1 px là đủ,
       - F1 phát hiện lỗi không kém mức tốt nhất quá f1_tolerance.
     Chênh lệch dưới 1 px giữa các giá trị là nhiễu ngẫu nhiên, không nên dùng
     để chọn tham số.
@@ -318,8 +345,8 @@ def recommend(summary: List[Dict[str, object]], max_corner_px: float,
     for s in summary:  # đã sắp xếp tăng dần
         if float(s["success_rate"]) < best_success - 1e-9:
             continue
-        worst = float(s["corner_error_max"])
-        if math.isnan(worst) or worst > max_corner_px:
+        p95 = float(s["corner_error_p95"])
+        if math.isnan(p95) or p95 > max_corner_px:
             continue
         f1 = float(s.get("f1", float("nan")))
         if not math.isnan(best_f1) and (math.isnan(f1) or f1 < best_f1 - f1_tolerance):
@@ -346,8 +373,9 @@ def print_summary(summary: List[Dict[str, object]], recommended: Optional[int]) 
     def f(v, fmt):
         return format(v, fmt) if not (isinstance(v, float) and math.isnan(v)) else "-".rjust(int(fmt.split(".")[0]))
 
-    header = (f"{'max_feat':>8} |{'OK %':>6} |{'kp':>6} |{'matches':>8} |{'inliers':>8} |"
-              f"{'inl %':>6} |{'reproj':>7} |{'corner':>7} |{'c.max':>7} |{'time ms':>8} |{'F1':>6}")
+    header = (f"{'max_feat':>8} |{'OK %':>6} |{'kp':>6} |{'inliers':>8} |{'reproj':>7} |"
+              f"{'corner':>7} |{'c.p95':>7} |{'c.max':>7} |{'>1px':>5} |{'NCC tc':>6} |"
+              f"{'ms med':>7} |{'ms p95':>7} |{'F1':>6} |{'F1@.5':>6}")
     print("\n" + header)
     print("-" * len(header))
     for s in summary:
@@ -357,14 +385,22 @@ def print_summary(summary: List[Dict[str, object]], recommended: Optional[int]) 
         if s["max_features"] == recommended:
             mark += "  <- đề xuất"
         print(f"{s['max_features']:>8} |{f(s['success_rate'] * 100, '6.1f')} |"
-              f"{f(s['kp_test'], '6.0f')} |{f(s['matches'], '8.0f')} |{f(s['inliers'], '8.0f')} |"
-              f"{f(s['inlier_ratio'] * 100, '6.1f')} |{f(s['reprojection_error'], '7.3f')} |"
-              f"{f(s['corner_error_median'], '7.3f')} |{f(s['corner_error_max'], '7.3f')} |"
-              f"{f(s['time_total_ms'], '8.0f')} |"
-              f"{f(s.get('f1', float('nan')), '6.3f')}{mark}")
+              f"{f(s['kp_test'], '6.0f')} |{f(s['inliers'], '8.0f')} |"
+              f"{f(s['reprojection_error'], '7.3f')} |"
+              f"{f(s['corner_error_median'], '7.3f')} |{f(s['corner_error_p95'], '7.3f')} |"
+              f"{f(s['corner_error_max'], '7.2f')} |{s['pairs_over_1px']:>5} |{s['ncc_rejects']:>6} |"
+              f"{f(s['time_total_median_ms'], '7.0f')} |{f(s['time_total_p95_ms'], '7.0f')} |"
+              f"{f(s.get('f1', float('nan')), '6.3f')} |{f(s.get('f1_iou50', float('nan')), '6.3f')}{mark}")
     print("-" * len(header))
-    print("reproj / corner: trung vị (px), c.max: sai số góc xấu nhất (px), chỉ tính "
-          "các cặp căn chỉnh thành công. corner = sai số so với phép biến đổi thật.")
+    print("corner / c.p95 / c.max: sai số góc trung vị / p95 / xấu nhất (px) trên cặp căn thành công;\n"
+          ">1px: số cặp lệch quá 1 px; NCC tc: số cặp sẽ bị kiểm tra NCC (P0.1) từ chối;\n"
+          "ms med / ms p95: thời gian căn chỉnh trung vị / p95; F1@.5: F1 ghép 1-1 theo IoU >= 0.5.")
+    worst = max((float(s["corner_error_max"]) for s in summary
+                 if not math.isnan(float(s["corner_error_max"]))), default=float("nan"))
+    if worst > 5:
+        n5 = min(int(s["pairs_over_5px"]) for s in summary)
+        print(f"[CẢNH BÁO] Có cặp lệch tới {worst:.1f} px; ít nhất {n5} cặp lệch > 5 px ở MỌI mức "
+              "-> lỗi kiểm tra homography, không phải thiếu feature (xem P0.1 / exp_alignment_check.py).")
 
 
 def plot_study(summary: List[Dict[str, object]], output_path: Path,
@@ -457,7 +493,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--warp-shift", type=float, default=40.0, help="Tịnh tiến giả lập tối đa (px).")
     parser.add_argument("--warp-scale", type=float, default=0.03, help="Co giãn giả lập tối đa (0.03 = ±3%%).")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--max-corner-px", type=float, default=1.0,
+    parser.add_argument("--max-corner-px", "--max-corner-p95", dest="max_corner_px",
+                        type=float, default=1.0,
                         help="Sai số góc xấu nhất chấp nhận được khi đề xuất (px, mặc định 1.0).")
     parser.add_argument("--no-detection", action="store_true",
                         help="Bỏ phần đo recall/precision (chạy nhanh hơn).")
@@ -517,22 +554,25 @@ def main(argv=None) -> List[Dict[str, object]]:
     csv_path = output_dir / "max_features_results.csv"
     chart_path = output_dir / "charts" / "max_features_study.png"
     write_csv(rows, csv_path)
+    write_csv(summary, output_dir / "max_features_summary.csv")
     plot_study(summary, chart_path, recommended, done)
 
     if recommended is not None:
         rec = next(s for s in summary if s["max_features"] == recommended)
         cur = next((s for s in summary if s["max_features"] == CURRENT_VALUE), None)
         print(f"\nĐề xuất: max_features = {recommended} — giá trị nhỏ nhất vừa căn chỉnh "
-              f"thành công ở mức cao nhất, vừa có sai số góc xấu nhất "
-              f"{float(rec['corner_error_max']):.3f} px (<= {args.max_corner_px} px), "
-              f"vừa giữ F1 ngang mức tốt nhất (thời gian ~{float(rec['time_total_ms']):.0f} ms).")
+              f"thành công ở mức cao nhất, vừa có sai số góc p95 "
+              f"{float(rec['corner_error_p95']):.3f} px (<= {args.max_corner_px} px), "
+              f"vừa giữ F1 ngang mức tốt nhất (thời gian trung vị "
+              f"~{float(rec['time_total_median_ms']):.0f} ms, p95 ~{float(rec['time_total_p95_ms']):.0f} ms).")
         if cur is not None and recommended != CURRENT_VALUE:
             print(f"Giá trị đang dùng {CURRENT_VALUE}: thời gian ~{float(cur['time_total_ms']):.0f} ms, "
                   f"sai số góc {float(cur['corner_error_median']):.3f} px.")
     else:
-        print(f"\nKhông giá trị nào đạt đủ tiêu chí (sai số góc xấu nhất <= {args.max_corner_px} px). "
+        print(f"\nKhông giá trị nào đạt đủ tiêu chí (sai số góc p95 <= {args.max_corner_px} px). "
               "Xem biểu đồ để chọn thủ công.")
     print(f"\nCSV chỉ số     : {csv_path}")
+    print(f"CSV tổng hợp   : {output_dir / 'max_features_summary.csv'}")
     print(f"Biểu đồ        : {chart_path}")
     print("\nGợi ý: dùng biểu đồ để điền Mục 2.2 của PROGRESS_REPORT.md (max_features_study.png).")
     return summary

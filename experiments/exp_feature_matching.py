@@ -22,8 +22,13 @@ Chạy trên CÙNG một tập cặp ảnh và đo:
     - recall    : tỷ lệ bbox GT có ít nhất 1 bbox phát hiện chạm vào
     - precision : tỷ lệ bbox phát hiện chạm vào ít nhất 1 bbox GT
     - f1
-    (Dùng tiêu chí "chạm nhau" thay vì IoU vì pipeline khoanh lõi vi sai nên
-     bbox nhỏ hơn nhãn GT nhiều.)
+    - f1_iou30 / f1_iou50 : F1 khi ghép 1-1 theo IoU >= 0.3 / 0.5 (P1.2). Tiêu chí
+      "chạm nhau" dễ dãi vì pipeline khoanh lõi vi sai nên bbox nhỏ hơn nhãn GT;
+      báo cáo cả hai để thấy độ nhạy của chỉ số.
+
+  Kiểm chứng NCC (P0.1): mặc định TẮT ở script này (--min-ncc) để so sánh chất
+  lượng thô của từng detector; cột ncc / ncc_rejects cho biết cặp nào sẽ bị
+  module_preprocess từ chối với ngưỡng mặc định.
 
 Cách chạy (từ thư mục gốc project):
     py -3.14 experiments/exp_feature_matching.py --per-class 5
@@ -71,10 +76,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from dataset_utils import find_pairs, load_image, load_manifest  # noqa: E402
+from evaluation import detection_counts as count_detections, prf_from_counts  # noqa: E402
 from module_detection import extract_bounding_boxes  # noqa: E402
 from module_preprocess import (  # noqa: E402
     DETECTORS,
     DEFAULT_MAX_FEATURES,
+    DEFAULT_MIN_NCC,
     AlignmentError,
     align_images_with_stats,
     detect_difference,
@@ -82,6 +89,8 @@ from module_preprocess import (  # noqa: E402
 )
 
 COLORS = {"ORB": "#4C72B0", "SIFT": "#DD8452", "AKAZE": "#55A868"}
+COND: Dict[str, object] = {"synthetic_warp": True, "max_features": DEFAULT_MAX_FEATURES,
+                           "min_ncc": None}  # điền trong compare_detectors()
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
@@ -236,6 +245,7 @@ def evaluate_pair(
 
     H_true = None
     H_true_inv = None
+    test_mask = None
     if kind == "original" and args.synthetic_warp:
         seed = zlib.crc32(f"{pair['pair_id']}:{args.seed}".encode())
         rng = np.random.default_rng(seed)
@@ -243,6 +253,8 @@ def evaluate_pair(
         H_true = random_homography(w, h, rng, args.warp_angle, args.warp_shift, args.warp_scale)
         test = cv2.warpPerspective(test, H_true, (w, h), flags=cv2.INTER_LINEAR,
                                    borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        test_mask = cv2.warpPerspective(np.full((h, w), 255, np.uint8), H_true, (w, h),
+                                        flags=cv2.INTER_NEAREST)
         H_true_inv = np.linalg.inv(H_true)
 
     rows = []
@@ -252,7 +264,8 @@ def evaluate_pair(
         t0 = time.perf_counter()
         try:
             aligned, stats = align_images_with_stats(
-                template, test, max_features=args.max_features, detector=name
+                template, test, max_features=args.max_features, detector=name,
+                min_ncc=args.min_ncc, test_mask=test_mask,
             )
         except AlignmentError as exc:
             aligned, stats = test, exc.stats
@@ -260,8 +273,11 @@ def evaluate_pair(
         for key in ("success", "kp_template", "kp_test", "matches", "good_matches",
                     "inliers", "inlier_ratio", "reprojection_error",
                     "time_detect_ms", "time_match_ms", "time_homography_ms",
-                    "time_warp_ms", "time_total_ms", "error"):
+                    "time_warp_ms", "time_verify_ms", "time_total_ms",
+                    "ncc", "ncc_grad", "failed_check", "error"):
             row[key] = stats.get(key)
+        row["ncc_reject"] = bool(stats.get("H_candidate") is not None
+                                 and not (float(stats.get("ncc", float("nan"))) >= DEFAULT_MIN_NCC))
         if not stats["success"]:
             # Thời gian tổng khi thất bại = thời gian đã chạy tới lúc dừng
             row["time_total_ms"] = (stats.get("time_detect_ms", 0) + stats.get("time_match_ms", 0)
@@ -298,9 +314,7 @@ def evaluate_pair(
                         aligned_detect, (template.shape[1], template.shape[0]))
                 diff = detect_difference(template, aligned_detect)
             boxes = extract_bounding_boxes(diff, min_area=args.min_area)
-            gt_hit, pred_hit = match_boxes(boxes, gt_boxes)
-            row.update({"n_gt": len(gt_boxes), "n_pred": len(boxes),
-                        "gt_hit": gt_hit, "pred_hit": pred_hit})
+            row.update(count_detections(boxes, gt_boxes))
         row["time_pipeline_ms"] = (time.perf_counter() - t0) * 1000.0
 
         if vis_dir is not None and stats["success"]:
@@ -350,18 +364,22 @@ def summarize(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
                 "time_detect_ms": _mean(r["time_detect_ms"] for r in items),
                 "time_match_ms": _mean(r["time_match_ms"] for r in items),
                 "time_align_ms": _mean(r["time_total_ms"] for r in items),
+                "time_align_median_ms": _median(r["time_total_ms"] for r in items),
                 "time_pipeline_ms": _mean(r["time_pipeline_ms"] for r in items),
+                "time_pipeline_median_ms": _median(r["time_pipeline_ms"] for r in items),
+                "ncc_median": _median(r.get("ncc") for r in ok),
+                "ncc_rejects": sum(1 for r in items if r.get("ncc_reject")),
             }
             if kind == "original":
-                n_gt = sum(int(r.get("n_gt", 0)) for r in items)
-                n_pred = sum(int(r.get("n_pred", 0)) for r in items)
-                gt_hit = sum(int(r.get("gt_hit", 0)) for r in items)
-                pred_hit = sum(int(r.get("pred_hit", 0)) for r in items)
-                recall = gt_hit / n_gt if n_gt else float("nan")
-                precision = pred_hit / n_pred if n_pred else float("nan")
-                f1 = (2 * precision * recall / (precision + recall)
-                      if precision + recall > 0 else 0.0)
-                entry.update({"recall": recall, "precision": precision, "f1": f1})
+                entry.update(prf_from_counts(items))
+            # Điều kiện đo, ghi ngay trong bảng (P2.2)
+            entry.update({
+                "cond_synthetic_warp": "on" if (kind == "original" and COND["synthetic_warp"]) else "off",
+                "cond_max_features": COND["max_features"],
+                "cond_ncc_check": "off" if COND["min_ncc"] is None else f">={COND['min_ncc']}",
+                "cond_detection_on": "original image, H_est @ H_true",
+                "cond_match_rule": "touch_tol5 (+ IoU 1-1)",
+            })
             summary.append(entry)
     return summary
 
@@ -392,7 +410,8 @@ def print_summary(summary: List[Dict[str, object]], synthetic_warp: bool = True)
             title = "ẢNH XOAY (pairs_rotation_manifest)"
         print(f"\n=== {title} — {items[0]['pairs']} cặp ===")
         header = (f"{'Detector':<8}|{'OK %':>7}|{'Keypts':>8}|{'Inliers':>8}|{'Inl %':>7}|"
-                  f"{'Reproj':>8}|{'Corner':>8}|{'Align ms':>9}|{'Recall':>7}|{'Prec':>7}|{'F1':>6}")
+                  f"{'Reproj':>8}|{'Corner':>8}|{'NCC':>6}|{'Align ms':>9}|{'Recall':>7}|{'Prec':>7}|"
+                  f"{'F1':>6}|{'F1@.3':>6}|{'F1@.5':>6}")
         print(header)
         print("-" * len(header))
         for s in items:
@@ -403,12 +422,17 @@ def print_summary(summary: List[Dict[str, object]], synthetic_warp: bool = True)
             print(f"{s['detector']:<8}|{f(s['success_rate'] * 100, '7.1f')}|"
                   f"{f(s['kp_test'], '8.0f')}|{f(s['inliers'], '8.0f')}|"
                   f"{f(s['inlier_ratio'] * 100, '7.1f')}|{f(s['reprojection_error'], '8.3f')}|"
-                  f"{f(s['corner_error_mean'], '8.3f')}|{f(s['time_align_ms'], '9.0f')}|"
+                  f"{f(s['corner_error_mean'], '8.3f')}|{f(s['ncc_median'], '6.3f')}|"
+                  f"{f(s['time_align_ms'], '9.0f')}|"
                   f"{f(s.get('recall', float('nan')), '7.3f')}|"
                   f"{f(s.get('precision', float('nan')), '7.3f')}|"
-                  f"{f(s.get('f1', float('nan')), '6.3f')}")
+                  f"{f(s.get('f1', float('nan')), '6.3f')}|"
+                  f"{f(s.get('f1_iou30', float('nan')), '6.3f')}|"
+                  f"{f(s.get('f1_iou50', float('nan')), '6.3f')}")
         print("(Reproj/Corner tính bằng px, chỉ trên cặp căn thành công. "
-              "Corner = sai số so với biến đổi thật.)")
+              "Corner = sai số so với biến đổi thật. NCC = trung vị điểm kiểm chứng P0.1.)")
+        rej = ", ".join(f"{s['detector']} {s['ncc_rejects']}" for s in items)
+        print(f"Số cặp sẽ bị kiểm chứng NCC (ngưỡng {DEFAULT_MIN_NCC}) từ chối: {rej}")
 
 
 def plot_summary(summary: List[Dict[str, object]], path: Path) -> None:
@@ -445,6 +469,8 @@ def plot_summary(summary: List[Dict[str, object]], path: Path) -> None:
 def compare_detectors(args: argparse.Namespace) -> List[Dict[str, object]]:
     """Hàm so sánh các detector: chạy, in bảng, ghi CSV + biểu đồ. Trả về summary."""
     names = select_detectors(list(args.detectors))
+    COND.update(synthetic_warp=args.synthetic_warp, max_features=args.max_features,
+                min_ncc=args.min_ncc)
     data_dir = args.data_dir or (PROJECT_ROOT / "data")
     pairs = find_pairs(str(data_dir))
     if not pairs:
@@ -530,6 +556,9 @@ def parse_args(argv=None) -> argparse.Namespace:
                         help="Lấy N cặp mỗi lớp lỗi (0 = tất cả). Gợi ý chạy nhanh: 5.")
     parser.add_argument("--max-features", type=int, default=DEFAULT_MAX_FEATURES,
                         help=f"Số đặc trưng tối đa (mặc định: {DEFAULT_MAX_FEATURES}).")
+    parser.add_argument("--min-ncc", type=float, default=None,
+                        help="Bật kiểm chứng NCC với ngưỡng này (mặc định: tắt để so sánh "
+                             "detector thô; module dùng %.2f)." % DEFAULT_MIN_NCC)
     parser.add_argument("--min-area", type=int, default=20,
                         help="Diện tích tối thiểu của bbox phát hiện (mặc định: 20).")
     parser.add_argument("--no-synthetic-warp", dest="synthetic_warp", action="store_false",
