@@ -154,14 +154,57 @@ def random_homography(width: int, height: int, rng: np.random.Generator,
     return H
 
 
-def corner_error(H_est: np.ndarray, H_true_inv: np.ndarray, width: int, height: int) -> float:
-    """Sai số trung bình (px) tại 4 góc ảnh giữa H ước lượng và H thật."""
+def corner_error(H_est: np.ndarray, H_true_inv: np.ndarray, width: int, height: int,
+                 H_pre: Optional[np.ndarray] = None) -> float:
+    """Sai số trung bình (px) tại 4 góc ảnh giữa H ước lượng và H thật.
+
+    `H_pre` (tùy chọn) là phép biến đổi nội dung test -> template đo trên ảnh
+    CHƯA nắn lệch. Một số cặp PKU không trùng khít template (lệch 7/28/47 px do
+    chụp khác vị trí), khi đó lấy H_true_inv làm mốc sẽ báo sai là "căn chỉnh
+    lỗi" dù H hoàn toàn đúng. Truyền H_pre để mốc thành H_pre @ H_true_inv.
+    """
+    ref = H_true_inv if H_pre is None else (H_pre @ H_true_inv)
     corners = np.float32(
         [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
     ).reshape(-1, 1, 2)
     est = cv2.perspectiveTransform(corners, H_est)
-    true = cv2.perspectiveTransform(corners, H_true_inv)
+    true = cv2.perspectiveTransform(corners, ref)
     return float(np.mean(np.linalg.norm(est - true, axis=2)))
+
+
+def estimate_content_homography(template: np.ndarray, test: np.ndarray,
+                                detector: str = "ORB",
+                                refine_detector: "str | None" = "SIFT",
+                                refine_if_px: float = 1.0,
+                                max_features: Optional[int] = None) -> Optional[np.ndarray]:
+    """Ước lượng H nội dung (test -> template) trên ảnh test CHƯA nắn lệch.
+
+    Dùng làm mốc cho `corner_error` để loại ảnh hưởng của dịch chuyển có sẵn
+    giữa template và test (xem CODE_REVIEW.md mục 2.2). Nếu H ước lượng lệch
+    quá `refine_if_px` so với identity (dấu hiệu cặp bị lệch sẵn), chạy lại
+    bằng `refine_detector` cho chính xác — chi phí chỉ tăng ở vài cặp.
+    """
+    from module_preprocess import (DEFAULT_MAX_FEATURES, AlignmentError,
+                                   align_images_with_stats)
+
+    features = max_features or DEFAULT_MAX_FEATURES
+
+    def run(name: str) -> Optional[np.ndarray]:
+        try:
+            _, stats = align_images_with_stats(template, test, max_features=features,
+                                               detector=name, min_ncc=None)
+            return stats.get("H")
+        except (AlignmentError, ImportError, ValueError):
+            return None
+
+    H = run(detector)
+    if H is not None and refine_detector and refine_detector.upper() != detector.upper():
+        h, w = test.shape[:2]
+        if corner_error(H, np.eye(3), w, h) > refine_if_px:
+            H_refined = run(refine_detector)
+            if H_refined is not None:
+                H = H_refined
+    return H
 
 
 def synthetic_warp(image: np.ndarray, pair_id: str, seed: int, max_angle: float,

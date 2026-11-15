@@ -21,6 +21,7 @@ from module_preprocess import (
     AlignmentError,
     align_images_robust,
     detect_difference,
+    warp_valid_mask,
 )
 
 # 2. Import module phát hiện & cắt đốm lỗi
@@ -150,10 +151,17 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
         align_stats = exc.stats
 
     # 3. Trừ vi sai và nhị phân hóa Otsu, khử nhiễu Morphology
+    #    Mask vùng hợp lệ sau warp: ảnh test xoay/dịch sẽ để lại dải đen ở mép,
+    #    dải này chi phối Otsu và xoá mất lỗi mảnh (CODE_REVIEW.md mục 2.3).
+    valid_mask = None
+    if align_stats.get("success") and align_stats.get("H") is not None:
+        valid_mask = warp_valid_mask(
+            img_test_color, align_stats["H"], img_temp_color.shape[:2], erode_border=3
+        )
     diff_mask = detect_difference(
         img_temp_color, img_test_aligned,
         threshold_floor=threshold_floor, open_ksize=open_ksize,
-        hysteresis_low=hysteresis_low,
+        hysteresis_low=hysteresis_low, valid=valid_mask,
     )
 
     # 4. Tìm Contours và trích xuất Bounding Boxes

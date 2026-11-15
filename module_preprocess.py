@@ -502,6 +502,36 @@ def align_images_robust(
     raise AlignmentError("Can chinh that bai o moi phuong an: " + " | ".join(log), last_stats)
 
 
+def warp_valid_mask(
+        img_test: np.ndarray,
+        H: np.ndarray,
+        out_shape,
+        erode_border: int = 0) -> np.ndarray:
+    """Mask pixel THAT cua anh test sau khi nan bang H (255 = noi dung that, 0 = vung trong).
+
+    Anh test khi warp se co vung den o mep (do xoay/dich/co gian). Neu khong loai
+    vung nay, ban do vi sai co mot dai tuong phan cuc dai o bien; Otsu se bi dai
+    nay chi phoi va day nguong len rat cao -> mat het loi manh.
+
+    `out_shape` = (h, w) hoac shape cua template. `erode_border` > 0 de bo them
+    vai pixel sat bien (noi noi suy de sai).
+    """
+    if H is None:
+        raise ValueError("Can ma tran homography de tao mask vung hop le.")
+    h, w = int(out_shape[0]), int(out_shape[1])
+    mask = np.full(img_test.shape[:2], 255, np.uint8)
+    mask = cv2.warpPerspective(
+        mask, H, (w, h),
+        flags=cv2.INTER_NEAREST,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    )
+    if erode_border and erode_border > 0:
+        k = 2 * int(erode_border) + 1
+        mask = cv2.erode(mask, np.ones((k, k), np.uint8))
+    return mask
+
+
 def gaussian_blur(gray: np.ndarray, ksize: int = 3) -> np.ndarray:
     """Gaussian blur dung chung cho pipeline va thi nghiem kernel.
 
@@ -561,7 +591,8 @@ def binarize_difference(
         border: int = 8,
         threshold_floor: int = DEFAULT_THRESHOLD_FLOOR,
         open_ksize: int = DEFAULT_OPEN_KSIZE,
-        hysteresis_low: "float | None" = DEFAULT_HYSTERESIS_LOW) -> np.ndarray:
+        hysteresis_low: "float | None" = DEFAULT_HYSTERESIS_LOW,
+        valid: "np.ndarray | None" = None) -> np.ndarray:
     """Otsu + nguong san + bo vien + morphology opening.
 
     threshold_floor : nguong = max(Otsu, threshold_floor)
@@ -570,6 +601,11 @@ def binarize_difference(
                       pixel >= hysteresis_low * nguong MIEN LA noi lien voi
                       mot pixel vuot nguong (nhu Canny). Giup giu tron net loi
                       manh / tuong phan yeu ma khong them dom nhieu rieng le.
+    valid           : mask vung hop le (255 = pixel that, xem `warp_valid_mask`).
+                      Otsu chi lay mau TRONG vung nay, va moi pixel ngoai vung
+                      bi dat 0 truoc khi loc nhieu. Bat buoc khi anh test da bi
+                      warp (xoay/dich), neu khong dai bien den se day nguong
+                      Otsu len va xoa mat loi manh (CODE_REVIEW.md muc 2.3).
     """
     if diff is None or diff.size == 0:
         raise ValueError("Ban do vi sai rong.")
@@ -578,19 +614,37 @@ def binarize_difference(
     if h <= 2 * border or w <= 2 * border:
         raise ValueError(f"Anh qua nho de loai bo vung bien {border} pixel.")
 
-    # Nhi phan hoa Otsu + nguong san
+    region = None
+    if valid is not None:
+        if valid.shape[:2] != diff.shape[:2]:
+            raise ValueError(
+                f"Mask vung hop le {valid.shape[:2]} khac kich thuoc ban do vi sai {diff.shape[:2]}."
+            )
+        region = valid > 0
+        sample = diff[region]
+        if sample.size < 500:
+            raise ValueError("Vung hop le qua nho de tinh nguong Otsu.")
+    else:
+        sample = diff
+
+    # Nhi phan hoa Otsu + nguong san; mau Otsu chi lay trong vung hop le.
     otsu_val, _ = cv2.threshold(
-        diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        np.ascontiguousarray(sample).reshape(-1, 1), 0, 255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU
     )
     threshold_value = max(int(otsu_val), int(threshold_floor))
 
     _, diff_binary = cv2.threshold(
         diff, threshold_value, 255, cv2.THRESH_BINARY
     )
+    if region is not None:
+        diff_binary[~region] = 0
 
     if hysteresis_low is not None and 0 < hysteresis_low < 1:
         low_value = max(1, int(threshold_value * hysteresis_low))
         _, weak = cv2.threshold(diff, low_value, 255, cv2.THRESH_BINARY)
+        if region is not None:
+            weak[~region] = 0
         n_labels, labels = cv2.connectedComponents(weak, connectivity=8)
         if n_labels > 1:
             keep = np.zeros(n_labels, bool)
@@ -618,12 +672,16 @@ def detect_difference(
     threshold_floor: int = DEFAULT_THRESHOLD_FLOOR,
     open_ksize: int = DEFAULT_OPEN_KSIZE,
     hysteresis_low: "float | None" = DEFAULT_HYSTERESIS_LOW,
+    valid: "np.ndarray | None" = None,
 ) -> np.ndarray:
     """Tru vi sai template voi anh test da can chinh, tra ve mask nhi phan.
 
     `blur_ksize` cho phep thi nghiem doi kich thuoc kernel Gaussian (mac dinh 3).
-    Cac tham so con lai chuyen thang cho `binarize_difference`.
+    `valid` la mask vung hop le sau warp (xem `warp_valid_mask`): dung de loai
+    dai bien den khoi buoc tinh nguong. Cac tham so con lai chuyen thang cho
+    `binarize_difference`.
     """
     diff, _ = difference_map(img_template, img_test_aligned, blur_ksize)
     return binarize_difference(diff, threshold_floor=threshold_floor,
-                               open_ksize=open_ksize, hysteresis_low=hysteresis_low)
+                               open_ksize=open_ksize, hysteresis_low=hysteresis_low,
+                               valid=valid)

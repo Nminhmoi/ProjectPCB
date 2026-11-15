@@ -1,16 +1,21 @@
 """
 P0.1 — Chốt ngưỡng kiểm chứng căn chỉnh bằng điểm ảnh (NCC).
 
-    Vấn đề (EXPERIMENT_REVIEW.md, mục 4 P0.1): có cặp căn chỉnh lệch tới 47 px
+    Vấn đề (EXPERIMENT_REVIEW.md, mục 4 P0.1): có cặp có corner error tới 47 px
     vẫn lọt qua mọi kiểm tra hình học (inliers, inlier ratio, reprojection, det),
     vì các kiểm tra đó chỉ nhìn tập inlier của chính RANSAC. module_preprocess
     giờ tính thêm NCC giữa template và ảnh test đã nắn (độ phân giải thấp, có
     mask vùng hợp lệ) và từ chối khi NCC < DEFAULT_MIN_NCC; main.py khi đó thử
     detector dự phòng (mặc định SIFT).
 
+    Lưu ý (CODE_REVIEW.md mục 2.2): 3 cặp từng bị coi là "ngoại lai" (06_spur_08,
+    04_spurious_copper_11, 06_spurious_copper_04) thực ra chỉ bị DỊCH CHUYỂN SẴN
+    giữa template và test. corner_error ở đây đã bù dịch chuyển đó bằng H_pre nên
+    không còn báo sai.
+
     Script này đo trên toàn bộ cặp ảnh để CHỐT ngưỡng:
       1. Nắn lệch ảnh test bằng homography ngẫu nhiên đã biết (cùng seed với
-         exp_feature_matching / exp_max_features nên ra đúng các cặp ngoại lai).
+         exp_feature_matching / exp_max_features).
       2. Căn chỉnh bằng ORB với kiểm tra NCC TẮT -> lấy H, corner error (sai số
          thật), NCC, NCC gradient, MAE.
       3. Với cặp có NCC thấp, chạy thêm detector dự phòng (mặc định SIFT) để
@@ -66,7 +71,11 @@ if "ipykernel" not in sys.modules:
 import matplotlib.pyplot as plt  # noqa: E402
 
 from dataset_utils import find_pairs, load_image  # noqa: E402
-from evaluation import corner_error, synthetic_warp  # noqa: E402
+from evaluation import (  # noqa: E402
+    corner_error,
+    estimate_content_homography,
+    synthetic_warp,
+)
 from module_preprocess import (  # noqa: E402
     DEFAULT_MAX_FEATURES,
     DEFAULT_MIN_NCC,
@@ -104,6 +113,11 @@ def evaluate_pair(pair: Dict[str, object], args: argparse.Namespace) -> Dict[str
         # Ảnh lỗi PKU trùng khít template -> phép biến đổi thật là đơn vị
         test_in, mask, H_true_inv = test, None, np.eye(3)
 
+    # Mốc so sánh bù dịch chuyển CÓ SẴN giữa template và test (một số cặp PKU
+    # lệch 7/28/47 px, xem CODE_REVIEW.md mục 2.2). Không có bước này, H đúng
+    # vẫn bị chấm là "căn chỉnh lỗi".
+    H_pre = estimate_content_homography(template, test)
+
     row: Dict[str, object] = {"pair": pair["pair_id"], "class_name": pair.get("class_name", "")}
     for tag, det in (("main", args.detector), ("fb", args.fallback)):
         if tag == "fb":
@@ -120,7 +134,7 @@ def evaluate_pair(pair: Dict[str, object], args: argparse.Namespace) -> Dict[str
             f"{tag}_error": stats.get("error", "") if not geom_ok else "",
             f"{tag}_inliers": stats.get("inliers", 0),
             f"{tag}_reprojection": stats.get("reprojection_error", float("nan")),
-            f"{tag}_corner": corner_error(H, H_true_inv, w, h) if geom_ok else float("nan"),
+            f"{tag}_corner": corner_error(H, H_true_inv, w, h, H_pre=H_pre) if geom_ok else float("nan"),
             f"{tag}_ncc": float(stats.get("ncc", float("nan"))) if geom_ok else float("nan"),
             f"{tag}_ncc_grad": float(stats.get("ncc_grad", float("nan"))) if geom_ok else float("nan"),
             f"{tag}_mae": float(stats.get("mae", float("nan"))) if geom_ok else float("nan"),
@@ -392,8 +406,10 @@ def main(argv=None) -> None:
                   "cân nhắc đổi chỉ số trong module_preprocess.")
     else:
         print("Chưa có cặp ngoại lai (>5 px) trong tập đã chạy -> chưa chốt được ngưỡng; "
-              "hãy chạy đủ 693 cặp (3 cặp ngoại lai đã biết: 06_spur_08, "
-              "04_spurious_copper_11, 06_spurious_copper_04).")
+              "hãy chạy đủ 693 cặp. Lưu ý: 3 cặp từng bị coi là ngoại lai "
+              "(06_spur_08, 04_spurious_copper_11, 06_spurious_copper_04) đã được xác định "
+              "là dịch chuyển có sẵn giữa template và test, không phải căn chỉnh sai "
+              "(CODE_REVIEW.md mục 2.2).")
 
     out = args.output_dir
     write_csv(rows, out / "alignment_check.csv")

@@ -37,8 +37,13 @@ Cách chạy:
     py -3.14 experiments/exp_detection_params.py --per-class 10
     py -3.14 experiments/exp_detection_params.py --per-class 10 --conditions clean
 
-Chạy full 693 cặp (~20–40 phút):
+Chạy full 693 cặp (~1.5–3 giờ; 693 × 2 điều kiện × 49 cấu hình ≈ 67.9k lần Otsu +
+    morphology + contours). Nên chạy `--per-class` trước để chọn lưới tham số gọn hơn:
     py -3.14 -u experiments/exp_detection_params.py --output-dir experiments
+
+    Ghi chú: cả hai điều kiện đều dùng mask "vùng hợp lệ" (pixel thật sau warp, erode
+    VALID_ERODE px) đưa vào bước TÍNH NGƯỠNG, không phải mask sau khi nhị phân hóa.
+    Lý do: dải biên đen do warp chi phối Otsu và xóa mất lỗi mảnh (CODE_REVIEW.md 2.3).
 
 Đầu ra:
     experiments/detection_params_summary.csv   (mỗi điều kiện x cấu hình)
@@ -97,6 +102,8 @@ from module_preprocess import (  # noqa: E402
 
 FOCUS_PAIRS = ["01_spur_04", "04_spurious_copper_05", "01_mouse_bite_19"]
 WEAK_CLASSES = ("Spur", "Spurious_copper")
+# Bỏ thêm vài pixel sát biên sau warp (nơi nội suy dễ sai) khi tạo mask hợp lệ.
+VALID_ERODE = 3
 BASELINE = (DEFAULT_THRESHOLD_FLOOR, DEFAULT_OPEN_KSIZE,
             float(DEFAULT_HYSTERESIS_LOW or 0.0), DEFAULT_MIN_AREA)
 KPI = {"recall": 0.97, "f1": 0.975, "weak_recall": 0.96, "false_blobs": 0.05}
@@ -134,10 +141,13 @@ def prepare(pair: Dict[str, object], condition: str, args: argparse.Namespace):
         H = None
 
     valid = None
-    if H is not None and (condition == "resample" or test_mask is not None):
+    if H is not None:
+        # Mask pixel thật sau warp; đưa vào bước tính ngưỡng (không phải mask
+        # sau khi nhị phân hóa) để dải biên đen không đẩy Otsu lên.
         src = test_mask if test_mask is not None else np.full(test.shape[:2], 255, np.uint8)
         valid = cv2.warpPerspective(src, H, (w, h), flags=cv2.INTER_NEAREST)
-        valid = cv2.erode(valid, np.ones((31, 31), np.uint8))
+        k = 2 * VALID_ERODE + 1
+        valid = cv2.erode(valid, np.ones((k, k), np.uint8))
     diff, _ = difference_map(template, aligned)
     return template, aligned, diff, valid, info
 
@@ -145,9 +155,7 @@ def prepare(pair: Dict[str, object], condition: str, args: argparse.Namespace):
 def detect(diff: np.ndarray, valid: Optional[np.ndarray], cfg: Config):
     floor, open_k, hyst, min_area = cfg
     mask = binarize_difference(diff, threshold_floor=floor, open_ksize=open_k,
-                               hysteresis_low=hyst if hyst else None)
-    if valid is not None:
-        mask = cv2.bitwise_and(mask, valid)
+                               hysteresis_low=hyst if hyst else None, valid=valid)
     return mask, extract_bounding_boxes(mask, min_area=min_area)
 
 
@@ -157,15 +165,18 @@ def detect(diff: np.ndarray, valid: Optional[np.ndarray], cfg: Config):
 def diagnose_missed(diff: np.ndarray, valid: Optional[np.ndarray], gt_boxes, cfg: Config,
                     boxes) -> List[Dict[str, object]]:
     floor, open_k, hyst, min_area = cfg
-    otsu, _ = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Otsu phải lấy mẫu trong cùng vùng với binarize_difference (bỏ dải biên đen).
+    sample = diff[valid > 0] if valid is not None else diff
+    if sample.size:
+        otsu, _ = cv2.threshold(np.ascontiguousarray(sample).reshape(-1, 1), 0, 255,
+                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    else:
+        otsu = 0
     thr = max(int(otsu), floor)
     raw = binarize_difference(diff, threshold_floor=floor, open_ksize=1,
-                              hysteresis_low=hyst if hyst else None)
+                              hysteresis_low=hyst if hyst else None, valid=valid)
     opened = binarize_difference(diff, threshold_floor=floor, open_ksize=open_k,
-                                 hysteresis_low=hyst if hyst else None)
-    if valid is not None:
-        raw = cv2.bitwise_and(raw, valid)
-        opened = cv2.bitwise_and(opened, valid)
+                                 hysteresis_low=hyst if hyst else None, valid=valid)
     out = []
     for g in gt_boxes:
         if any(boxes_touch(p, g) for p in boxes):

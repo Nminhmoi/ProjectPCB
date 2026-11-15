@@ -76,7 +76,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from dataset_utils import find_pairs, load_image, load_manifest  # noqa: E402
-from evaluation import detection_counts as count_detections, prf_from_counts  # noqa: E402
+from evaluation import (  # noqa: E402
+    corner_error,
+    detection_counts as count_detections,
+    estimate_content_homography,
+    prf_from_counts,
+)
 from module_detection import extract_bounding_boxes  # noqa: E402
 from module_preprocess import (  # noqa: E402
     DETECTORS,
@@ -130,16 +135,6 @@ def random_homography(
     H[0, 2] += tx
     H[1, 2] += ty
     return H
-
-
-def corner_error(H_est: np.ndarray, H_true_inv: np.ndarray, width: int, height: int) -> float:
-    """Sai số trung bình (px) tại 4 góc ảnh giữa H ước lượng và H thật."""
-    corners = np.float32(
-        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
-    ).reshape(-1, 1, 2)
-    est = cv2.perspectiveTransform(corners, H_est)
-    true = cv2.perspectiveTransform(corners, H_true_inv)
-    return float(np.mean(np.linalg.norm(est - true, axis=2)))
 
 
 def read_labels(label_path: Optional[Path]) -> List[Tuple[int, int, int, int]]:
@@ -245,8 +240,13 @@ def evaluate_pair(
 
     H_true = None
     H_true_inv = None
+    H_pre = None
     test_mask = None
     if kind == "original" and args.synthetic_warp:
+        # Mốc so sánh = H nội dung của cặp (bù dịch chuyển có sẵn giữa template
+        # và test) ghép với phép nắn lệch giả lập (CODE_REVIEW.md mục 2.2).
+        H_pre = estimate_content_homography(template, test,
+                                            max_features=args.max_features)
         seed = zlib.crc32(f"{pair['pair_id']}:{args.seed}".encode())
         rng = np.random.default_rng(seed)
         h, w = test.shape[:2]
@@ -286,7 +286,7 @@ def evaluate_pair(
         row["corner_error"] = float("nan")
         if stats["success"] and H_true_inv is not None:
             h, w = test.shape[:2]
-            row["corner_error"] = corner_error(stats["H"], H_true_inv, w, h)
+            row["corner_error"] = corner_error(stats["H"], H_true_inv, w, h, H_pre=H_pre)
 
         # Phát hiện lỗi (chỉ với cặp có nhãn)
         if kind == "original":

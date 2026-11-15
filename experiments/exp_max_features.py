@@ -70,7 +70,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dataset_utils import find_pairs, load_image  # noqa: E402
 from module_detection import extract_bounding_boxes  # noqa: E402
-from evaluation import detection_counts as count_detections, prf_from_counts  # noqa: E402
+from evaluation import (  # noqa: E402
+    corner_error,
+    detection_counts as count_detections,
+    estimate_content_homography,
+    prf_from_counts,
+)
 from module_preprocess import (  # noqa: E402
     DEFAULT_MAX_FEATURES,
     DEFAULT_MIN_NCC,
@@ -150,16 +155,6 @@ def random_homography(
     return H
 
 
-def corner_error(H_est: np.ndarray, H_true_inv: np.ndarray, width: int, height: int) -> float:
-    """Sai số trung bình (px) tại 4 góc ảnh giữa H ước lượng và H thật."""
-    corners = np.float32(
-        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
-    ).reshape(-1, 1, 2)
-    est = cv2.perspectiveTransform(corners, H_est)
-    true = cv2.perspectiveTransform(corners, H_true_inv)
-    return float(np.mean(np.linalg.norm(est - true, axis=2)))
-
-
 def read_labels(label_path: Optional[Path]) -> List[Tuple[int, int, int, int]]:
     if not label_path or not Path(label_path).is_file():
         return []
@@ -222,6 +217,8 @@ def evaluate_pair(pair: Dict[str, object], values: List[int],
     h, w = test.shape[:2]
 
     seed = zlib.crc32(f"{pair['pair_id']}:{args.seed}".encode())
+    # Mốc so sánh: bù dịch chuyển có sẵn giữa template và test (CODE_REVIEW.md 2.2)
+    H_pre = estimate_content_homography(template, test)
     H_true = random_homography(w, h, np.random.default_rng(seed),
                                args.warp_angle, args.warp_shift, args.warp_scale)
     warped = cv2.warpPerspective(test, H_true, (w, h), flags=cv2.INTER_LINEAR,
@@ -246,7 +243,7 @@ def evaluate_pair(pair: Dict[str, object], values: List[int],
             "pair": pair["pair_id"], "class_name": pair.get("class_name", ""),
             "max_features": value,
             **{k: v for k, v in res.items() if k != "H"},
-            "corner_error": (corner_error(res["H"], H_true_inv, w, h)
+            "corner_error": (corner_error(res["H"], H_true_inv, w, h, H_pre=H_pre)
                              if res["success"] else float("nan")),
             "ncc_reject": bool(res["success"] and not (res["ncc"] >= DEFAULT_MIN_NCC)),
         }
