@@ -78,6 +78,8 @@ Pipeline xử lý ảnh màu end-to-end gồm chuỗi các bước tuần tự:
 
 ## 4. KẾ HOẠCH THỰC NGHIỆM ĐỐI SÁNH & CƠ SỞ KHOA HỌC (BENCHMARKING)
 
+> **Đã chạy full 693 cặp:** xem bảng số liệu, nhận xét và roadmap tối ưu tại [`EXPERIMENT_REVIEW.md`](EXPERIMENT_REVIEW.md).
+
 Nhóm xây dựng các kịch bản thực nghiệm định lượng để bảo vệ các quyết định kỹ thuật:
 
 ### 1. Đối sánh bộ dò đặc trưng: ORB vs. SIFT (vs. AKAZE)
@@ -89,10 +91,10 @@ Nhóm xây dựng các kịch bản thực nghiệm định lượng để bảo
   * Sai số tái chiếu (Reprojection Error tính bằng pixel qua phép chiếu ngược).
 * **Luận điểm:** SIFT cho độ chính xác cao nhưng tốc độ chậm; ORB sử dụng descriptor nhị phân (Hamming distance) tính toán cực nhanh, phù hợp camera công nghiệp thời gian thực và là thuật toán mã nguồn mở tự do.
 
-### 2. Khảo sát số lượng đặc trưng (`max_features = 5000`)
-* **Mục tiêu:** Thể hiện bằng số liệu thực nghiệm tại sao 5000 là điểm tối ưu (Ablation Study).
-* **Phương pháp:** Chạy thử nghiệm trên dải giá trị: `[500, 1000, 2000, 3000, 5000, 8000, 10000]`.
-* **Biểu đồ cần xuất:** Đồ thị quan hệ 2 trục $Y$ giữa **Sai số tái chiếu (Reprojection Error)** và **Thời gian xử lý (Execution Time)** theo trục $X$ (`max_features`) để chỉ ra điểm cân bằng Pareto tại 5000.
+### 2. Khảo sát số lượng đặc trưng (`max_features = 2000`)
+* **Mục tiêu:** Thể hiện bằng số liệu thực nghiệm tại sao 2000 là điểm cân bằng tốc độ/độ chính xác (Ablation Study).
+* **Phương pháp:** Chạy trên toàn bộ 693 cặp, dải giá trị: `[500, 1000, 2000, 3000, 5000, 10000]`.
+* **Biểu đồ cần xuất:** Đồ thị quan hệ giữa **sai số góc (corner error)**, **thời gian căn chỉnh** và **F1 phát hiện lỗi** theo trục $X$ (`max_features`) để chỉ ra điểm cân bằng Pareto tại 2000.
 
 ### 3. Phương pháp tiền xử lý ảnh màu công nghiệp $\rightarrow$ Ảnh nhị phân
 * **Mục tiêu:** Giải quyết bài toán ảnh màu chụp từ camera công nghiệp bị bóng phản xạ từ bề mặt kim loại/vết hàn.
@@ -103,7 +105,7 @@ Nhóm xây dựng các kịch bản thực nghiệm định lượng để bảo
 
 ### 4. Tối ưu kích thước Kernel làm mờ: Tại sao 3x3 mà không phải 5x5 hay 6x6?
 * **Cơ sở toán học:** Kernel tích chập làm mờ bắt buộc phải có kích thước **lẻ** ($3 \times 3, 5 \times 5, 7 \times 7$) để đảm bảo có **tâm đối xứng (center pixel)** rõ ràng. Kích thước chẵn như $6 \times 6$ làm lệch tâm tọa độ và méo ảnh.
-* **Thực nghiệm đối chứng $3 \times 3$ vs $5 \times 5$:** Đường mạch PCB có độ rộng chi tiết rất nhỏ (micro-traces), các lỗi li ti như lỗ rỗ (pin-hole) hoặc gai đồng nhỏ chỉ rộng vài pixel. Kernel $5 \times 5$ làm mờ quá mức sẽ "nuốt chửng" các lỗi nhỏ hoặc gây viền giả ở biên. Kernel $3 \times 3$ là kích thước tối ưu bảo toàn biên cạnh (Edge Preservation) và loại bỏ tốt nhiễu hạt cảm biến.
+* **Thực nghiệm đối chứng $3 \times 3$ vs $5 \times 5$ vs $7 \times 7$:** Đường mạch PCB có độ rộng chi tiết rất nhỏ (micro-traces), các lỗi li ti như lỗ rỗ (pin-hole) hoặc gai đồng nhỏ chỉ rộng vài pixel. Trên 693 cặp, ba kernel cho F1 tương đương (chênh 0.001–0.002, trong độ lệch chuẩn) nhưng $3 \times 3$ giữ tương phản nét 2 px tốt nhất (75% so với 62%/50%) và nhanh nhất (3.07 ms).
 
 ### 5. Trực quan hóa căn chỉnh Homography
 * Xuất ảnh nối cặp đặc trưng (`drawMatches`) với phân biệt Inlier (xanh lá) và Outlier (đỏ).
@@ -123,7 +125,7 @@ Nhóm xây dựng các kịch bản thực nghiệm định lượng để bảo
   * Hoàn thiện hàm căn chỉnh ảnh màu `align_images()` bằng ma trận Homography và RANSAC.
 * **Trách nhiệm Thực nghiệm & Báo cáo:**
   * Viết script thực nghiệm `exp_feature_matching.py`: Đối sánh định lượng **ORB vs SIFT vs AKAZE** (thời gian, inlier ratio, reprojection error).
-  * Viết script khảo sát `exp_max_features.py`: Chạy từ 500 $\rightarrow$ 10.000 điểm đặc trưng và xuất biểu đồ Pareto tìm điểm tối ưu 5000.
+  * Viết script khảo sát `exp_max_features.py`: Chạy từ 500 $\rightarrow$ 10.000 điểm đặc trưng và xuất biểu đồ Pareto tìm điểm tối ưu (chốt 2000).
   * Viết script khảo sát kích thước Kernel làm mờ Gaussian ($3 \times 3$ vs $5 \times 5$), giải thích toán học về kernel lẻ/chẵn.
 
 #### 2. Minh — Định vị khuyết tật & Phân loại Machine Learning
@@ -166,6 +168,7 @@ Nhóm xây dựng các kịch bản thực nghiệm định lượng để bảo
 ```text
 ProjectPCB/
 ├── README.md                   # Tài liệu tổng quan, kiến trúc và phân công nhiệm vụ
+├── EXPERIMENT_REVIEW.md        # Tổng hợp số liệu 693 cặp + danh sách việc cần tối ưu (đọc trước khi sửa pipeline)
 ├── requirements.txt            # Danh sách thư viện (opencv-python, numpy, scikit-learn, matplotlib)
 ├── main.py                     # Luồng chạy kiểm tra hoàn chỉnh từ đầu đến cuối (CLI)
 ├── gui_app.py                  # Giao diện người dùng Desktop thao tác trực quan
@@ -175,9 +178,9 @@ ProjectPCB/
 ├── data/                       # Dữ liệu ảnh bo mạch
 │   └── PKU-Market-PCB/         # Dataset chính: ảnh màu công nghiệp độ phân giải cao kèm nhãn
 ├── experiments/                # Các script thực nghiệm đối sánh khoa học
-│   ├── exp_feature_matching.py # Đo đạc đối sánh ORB vs SIFT vs AKAZE
+│   ├── exp_feature_matching.py # Đối sánh ORB vs SIFT vs AKAZE (dùng module_preprocess.py chung)
 │   ├── exp_max_features.py     # Khảo sát tham số max_features (500 -> 10000)
-│   ├── exp_blur_kernel.py      # So sánh kernel 3x3 vs 5x5
+│   ├── exp_blur_kernel.py      # Khảo sát kernel blur 1/3/5/7 (6x6 chỉ ở phần lý thuyết)
 │   ├── evaluate_metrics.py     # Đo Precision, Recall, F1, IoU dựa trên Ground Truth
 │   └── charts/                 # Thư mục lưu các biểu đồ tự động sinh ra phục vụ báo cáo
 ├── crops/                      # Thư mục lưu các đốm lỗi vừa cắt ra
@@ -197,7 +200,7 @@ ProjectPCB/
 
 ### Tiêu chuẩn Báo cáo & Phản biện (Khoa học):
 1. **Bảng số liệu đối sánh ORB vs SIFT:** Có đầy đủ chỉ số về thời gian (ms), tỷ lệ inliers (%), sai số tái chiếu (px) để bảo vệ lý do chọn ORB.
-2. **Biểu đồ chứng minh `max_features = 5000`:** Biểu đồ Pareto thể hiện điểm đánh đổi tối ưu giữa độ chính xác và tốc độ.
+2. **Biểu đồ chứng minh `max_features = 2000`:** Biểu đồ Pareto thể hiện điểm đánh đổi tối ưu giữa độ chính xác và tốc độ.
 3. **Minh chứng toán học & thực nghiệm Blur:** Giải thích rõ lý do dùng kernel lẻ ($3 \times 3$ vs $5 \times 5$), chứng minh bảo toàn các khuyết tật vi mô.
 4. **Trực quan hóa sinh động:** Đầy đủ ảnh minh họa đường nối feature matching và ảnh bàn cờ checkerboard chứng minh độ khít của Homography.
 5. **Bảng số liệu định lượng:** Bảng đo IoU, Precision, Recall, Confusion Matrix trên tập dữ liệu chuẩn.

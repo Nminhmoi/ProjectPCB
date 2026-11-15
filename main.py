@@ -8,7 +8,14 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # 1. Import module tiền xử lý
-from module_preprocess import align_images, detect_difference
+from module_preprocess import (
+    DETECTORS,
+    DEFAULT_DETECTOR,
+    DEFAULT_MAX_FEATURES,
+    AlignmentError,
+    align_images_with_stats,
+    detect_difference,
+)
 
 # 2. Import module phát hiện & cắt đốm lỗi
 from module_detection import extract_bounding_boxes, crop_defect_patches
@@ -93,14 +100,17 @@ def clean_output_directories(directories: list = None) -> int:
     return deleted_count
 
 
-def process_pair(pair: dict) -> tuple:
+def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
+                 max_features: int = DEFAULT_MAX_FEATURES) -> tuple:
     """
     Chạy toàn bộ pipeline trên 1 cặp ảnh.
 
     `pair` là dict do `dataset_utils.find_pairs` trả về, gồm:
     pair_id, test_path, template_path, class_name, annotation_path, ...
 
-    Trả về: (boxes, crop_paths, output_path, thời_gian_giây)
+    `detector` chọn bộ đặc trưng căn chỉnh: ORB / SIFT / AKAZE.
+
+    Trả về: (boxes, crop_paths, output_path, thời_gian_giây, align_stats)
     """
     start = time.time()
 
@@ -112,12 +122,16 @@ def process_pair(pair: dict) -> tuple:
     img_test_color = load_image(test_path)
     img_temp_color = load_image(temp_path)
 
-    # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (ORB & Homography)
+    # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (detector + Homography)
     try:
-        img_test_aligned = align_images(img_temp_color, img_test_color)
-    except Exception as exc:
+        img_test_aligned, align_stats = align_images_with_stats(
+            img_temp_color, img_test_color,
+            max_features=max_features, detector=detector,
+        )
+    except AlignmentError as exc:
         print(f"    [CẢNH BÁO] Căn chỉnh thất bại: {exc} — dùng ảnh chưa căn chỉnh")
         img_test_aligned = img_test_color
+        align_stats = exc.stats
 
     # 3. Trừ vi sai và nhị phân hóa Otsu, khử nhiễu Morphology
     diff_mask = detect_difference(img_temp_color, img_test_aligned)
@@ -139,7 +153,7 @@ def process_pair(pair: dict) -> tuple:
     cv2.imwrite(output_path, img_result)
 
     elapsed = time.time() - start
-    return boxes, crop_paths, output_path, elapsed
+    return boxes, crop_paths, output_path, elapsed, align_stats
 
 
 def parse_args() -> argparse.Namespace:
@@ -161,6 +175,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Chỉ chạy N cặp đầu tiên (0 = chạy tất cả).",
+    )
+    parser.add_argument(
+        "--detector",
+        choices=list(DETECTORS),
+        default=DEFAULT_DETECTOR,
+        help=f"Bộ đặc trưng căn chỉnh (mặc định: {DEFAULT_DETECTOR}).",
+    )
+    parser.add_argument(
+        "--max-features",
+        type=int,
+        default=DEFAULT_MAX_FEATURES,
+        help=f"Số đặc trưng tối đa cho mỗi ảnh (mặc định: {DEFAULT_MAX_FEATURES}).",
     )
     return parser.parse_args()
 
@@ -188,6 +214,7 @@ def main():
             "       Cần pairs_manifest.csv (chạy experiments/build_pairs.py trước).\n"
         )
 
+    print(f" Bộ đặc trưng căn chỉnh : {args.detector}")
     print(f" Tìm thấy {len(pairs)} cặp ảnh trong '{args.data_dir}'")
     print("=" * 65)
 
@@ -200,7 +227,9 @@ def main():
         print(f"\n[{idx}/{len(pairs)}] {img_id}")
 
         try:
-            boxes, crop_paths, output_path, elapsed = process_pair(pair)
+            boxes, crop_paths, output_path, elapsed, align_stats = process_pair(
+                pair, detector=args.detector, max_features=args.max_features
+            )
         except Exception as exc:
             print(f"    [LỖI] {exc}")
             continue
@@ -209,6 +238,13 @@ def main():
         total_defects += len(boxes)
         total_crops += len(crop_paths)
 
+        if align_stats.get("success"):
+            print(f"    Căn chỉnh        : {align_stats['inliers']} inliers "
+                  f"({align_stats['inlier_ratio'] * 100:.0f}%), "
+                  f"reproj {align_stats['reprojection_error']:.2f} px, "
+                  f"{align_stats['time_total_ms']:.0f} ms")
+        else:
+            print(f"    Căn chỉnh        : THẤT BẠI — {align_stats.get('error', '?')}")
         print(f"    Số lỗi phát hiện : {len(boxes)}")
         print(f"    Số crop đã lưu  : {len(crop_paths)}")
         print(f"    Thời gian        : {elapsed:.3f} giây")

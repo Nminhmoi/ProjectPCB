@@ -69,7 +69,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dataset_utils import find_pairs, load_image  # noqa: E402
 from module_detection import extract_bounding_boxes  # noqa: E402
-from module_preprocess import _gray_clahe, align_images, detect_difference  # noqa: E402
+from module_preprocess import (  # noqa: E402
+    align_images,
+    binarize_difference,
+    detect_difference,
+    difference_map,
+)
 
 import matplotlib
 
@@ -78,7 +83,10 @@ if "ipykernel" not in sys.modules:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-DEFAULT_KERNELS = [1, 3, 5, 6, 7]
+DEFAULT_KERNELS = [1, 3, 5, 7]
+# Kernel chẵn không dùng được với cv2.GaussianBlur trong pipeline, nhưng vẫn
+# đưa vào bảng lý thuyết để giải thích vì sao không chọn.
+THEORY_EXTRA_KERNELS = [6]
 CURRENT_KERNEL = 3
 THIN_CLASSES = ("Mouse_bite", "Spur", "Open_circuit")
 LINE_WIDTHS = (1, 2, 3, 5)
@@ -105,56 +113,6 @@ def try_opencv_gaussian(k: int) -> str:
         start = text.find("Assertion failed")
         return text[start:] if start >= 0 else text
 
-
-def blur(gray: np.ndarray, k: int) -> np.ndarray:
-    """Gaussian k x k, sigma tự động như pipeline.
-
-    - k = 1 : không làm mờ.
-    - k lẻ  : cv2.GaussianBlur (đúng như module_preprocess).
-    - k chẵn: cv2.GaussianBlur báo lỗi, nên dùng sepFilter2D với cùng kernel
-              Gaussian để vẫn đo được. Kernel chẵn không có tâm -> ảnh lệch 0.5 px.
-    """
-    if k == 1:
-        return gray.copy()
-    if k % 2 == 1:
-        return cv2.GaussianBlur(gray, (k, k), 0)
-    kernel = cv2.getGaussianKernel(k, 0)
-    return cv2.sepFilter2D(gray, -1, kernel, kernel, borderType=cv2.BORDER_REFLECT_101)
-
-
-def detect_difference_k(img_template: np.ndarray, img_test_aligned: np.ndarray,
-                        k: int) -> Tuple[np.ndarray, np.ndarray, float]:
-    """Bản sao detect_difference, chỉ thay kernel Gaussian 3x3 bằng k x k.
-
-    Trả về (mask nhị phân cuối cùng, bản đồ vi sai trước ngưỡng, thời gian blur ms).
-    """
-    gray_template = _gray_clahe(img_template)
-    gray_test = _gray_clahe(img_test_aligned)
-
-    t0 = time.perf_counter()
-    blur_template = blur(gray_template, k)
-    blur_test = blur(gray_test, k)
-    t_blur = (time.perf_counter() - t0) * 1000.0
-
-    kernel = np.ones((5, 5), np.uint8)
-    template_eroded = cv2.erode(blur_template, kernel)
-    template_dilated = cv2.dilate(blur_template, kernel)
-    test_brighter = cv2.subtract(blur_test, template_dilated)
-    test_darker = cv2.subtract(template_eroded, blur_test)
-    diff = cv2.max(test_brighter, test_darker)
-
-    otsu_val, _ = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, diff_binary = cv2.threshold(diff, max(int(otsu_val), 30), 255, cv2.THRESH_BINARY)
-
-    border = 8
-    diff_binary[:border, :] = 0
-    diff_binary[-border:, :] = 0
-    diff_binary[:, :border] = 0
-    diff_binary[:, -border:] = 0
-
-    clean_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    mask = cv2.morphologyEx(diff_binary, cv2.MORPH_OPEN, clean_kernel)
-    return mask, diff, t_blur
 
 
 # 2. Phần A — chỉ số lý thuyết
@@ -252,8 +210,8 @@ def snr(diff: np.ndarray, gt_boxes: List[Tuple[int, int, int, int]], margin: int
     return float(top.mean()) / (float(np.percentile(bg_vals, 99.9)) + 1.0)
 
 
-def evaluate_pair(pair: Dict[str, object], kernels: List[int], args: argparse.Namespace,
-                  check_consistency: bool) -> Tuple[List[Dict[str, object]], Dict[str, object]]:
+def evaluate_pair(pair: Dict[str, object], kernels: List[int],
+                  args: argparse.Namespace) -> Tuple[List[Dict[str, object]], Dict[str, object]]:
     template = load_image(Path(pair["template_path"]))
     test = load_image(Path(pair["test_path"]))
     try:
@@ -265,45 +223,67 @@ def evaluate_pair(pair: Dict[str, object], kernels: List[int], args: argparse.Na
         aligned = cv2.resize(aligned, (template.shape[1], template.shape[0]))
 
     gt_boxes = read_labels(pair.get("label_path"))
-    conditions = {"clean": aligned}
+
+    # Mỗi điều kiện là (tên, seed, ảnh). Ảnh nhiễu được lặp nhiều seed để
+    # kết quả không phụ thuộc may rủi của một lần sinh nhiễu duy nhất.
+    conditions: List[Tuple[str, int, np.ndarray]] = [("clean", 0, aligned)]
     if args.noise_sigma > 0:
-        rng = np.random.default_rng(zlib.crc32(f"{pair['pair_id']}:{args.seed}".encode()))
-        noise = rng.normal(0.0, args.noise_sigma, aligned.shape)
-        conditions["noise"] = np.clip(aligned.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+        for seed_idx in range(max(1, args.noise_seeds)):
+            rng = np.random.default_rng(
+                zlib.crc32(f"{pair['pair_id']}:{args.seed}:{seed_idx}".encode())
+            )
+            noise = rng.normal(0.0, args.noise_sigma, aligned.shape)
+            noisy = np.clip(aligned.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+            conditions.append(("noise", seed_idx, noisy))
 
-    if check_consistency:
-        ref = detect_difference(template, aligned)
-        mine, _, _ = detect_difference_k(template, aligned, CURRENT_KERNEL)
-        print(f"    Kiểm tra đối chiếu với module_preprocess.detect_difference (3x3): "
-              f"{'KHỚP' if np.array_equal(ref, mine) else 'KHÁC (kiểm tra lại code!)'}")
-
-    rows = []
+    rows: List[Dict[str, object]] = []
     visual: Dict[str, object] = {"pair": pair["pair_id"], "aligned": aligned,
-                                 "noisy": conditions.get("noise"), "gt": gt_boxes, "maps": {}}
-    for cond_name, image in conditions.items():
+                                 "noisy": None, "gt": gt_boxes, "maps": {}}
+    for cond_name, seed_idx, image in conditions:
+        if cond_name == "noise" and visual["noisy"] is None:
+            visual["noisy"] = image
         for k in kernels:
-            times, result = [], None
+            times, diff = [], None
             for _ in range(max(1, args.repeats)):
-                result = detect_difference_k(template, image, k)
-                times.append(result[2])
-            mask, diff, _ = result
+                diff, t_blur = difference_map(template, image, blur_ksize=k)
+                times.append(t_blur)
+            mask = binarize_difference(diff)
             boxes = extract_bounding_boxes(mask, min_area=20)
             gt_hit = sum(1 for g in gt_boxes if any(_touch(p, g) for p in boxes))
-            pred_hit = sum(1 for p in boxes if any(_touch(p, g) for g in gt_boxes))
+            pred_hit = sum(1 for p in boxes if any(_touch(g, p) for g in gt_boxes))
             rows.append({
                 "pair": pair["pair_id"], "class_name": pair.get("class_name", ""),
-                "condition": cond_name, "kernel": k, "aligned_ok": aligned_ok,
+                "condition": cond_name, "noise_seed": seed_idx, "kernel": k,
+                "aligned_ok": aligned_ok,
                 "n_gt": len(gt_boxes), "n_pred": len(boxes), "gt_hit": gt_hit,
                 "pred_hit": pred_hit, "false_blobs": len(boxes) - pred_hit,
                 "snr": snr(diff, gt_boxes), "time_blur_ms": statistics.median(times),
             })
-            visual["maps"][(cond_name, k)] = (diff, mask)
+            visual["maps"].setdefault((cond_name, k), (diff, mask))
     return rows, visual
 
 
 # 4. Tổng hợp
 def _ratio(num: int, den: int) -> float:
     return num / den if den else float("nan")
+
+
+def _metric_per_item(r: Dict[str, object]) -> Tuple[float, float, float]:
+    """Recall / precision / F1 của một dòng (một cặp, một seed nhiễu)."""
+    n_gt, n_pred = int(r["n_gt"]), int(r["n_pred"])
+    gt_hit, pred_hit = int(r["gt_hit"]), int(r["pred_hit"])
+    recall = gt_hit / n_gt if n_gt else float("nan")
+    precision = pred_hit / n_pred if n_pred else float("nan")
+    if math.isnan(recall) or math.isnan(precision) or precision + recall == 0:
+        f1 = float("nan") if math.isnan(recall) or math.isnan(precision) else 0.0
+    else:
+        f1 = 2 * precision * recall / (precision + recall)
+    return recall, precision, f1
+
+
+def _std(values) -> float:
+    vals = [v for v in values if not math.isnan(v)]
+    return statistics.pstdev(vals) if len(vals) > 1 else 0.0
 
 
 def summarize(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
@@ -320,11 +300,16 @@ def summarize(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
         precision = _ratio(sum(int(r["pred_hit"]) for r in items), n_pred)
         f1 = (2 * precision * recall / (precision + recall)
               if not math.isnan(precision) and not math.isnan(recall) and precision + recall > 0 else 0.0)
+        per_item = [_metric_per_item(r) for r in items]
         thin = [r for r in items if r["class_name"] in THIN_CLASSES]
         snrs = [float(r["snr"]) for r in items if not math.isnan(float(r["snr"]))]
         entry: Dict[str, object] = {
-            "condition": cond, "kernel": k, "pairs": len(items),
+            "condition": cond, "kernel": k,
+            "pairs": len({r["pair"] for r in items}), "samples": len(items),
             "recall": recall, "precision": precision, "f1": f1,
+            "recall_std": _std([v[0] for v in per_item]),
+            "precision_std": _std([v[1] for v in per_item]),
+            "f1_std": _std([v[2] for v in per_item]),
             "recall_thin": _ratio(sum(int(r["gt_hit"]) for r in thin), sum(int(r["n_gt"]) for r in thin)),
             "false_blobs_per_img": statistics.fmean(int(r["false_blobs"]) for r in items),
             "snr": statistics.median(snrs) if snrs else float("nan"),
@@ -352,27 +337,39 @@ def write_csv(rows: List[Dict[str, object]], output_path: Path) -> None:
             writer.writerow({k: (round(v, 6) if isinstance(v, float) else v) for k, v in row.items()})
 
 
-def print_summary(summary: List[Dict[str, object]], n_pairs: int, noise_sigma: float) -> None:
+def print_summary(summary: List[Dict[str, object]], n_pairs: int, noise_sigma: float,
+                  noise_seeds: int) -> None:
     def f(v, fmt):
         return format(v, fmt) if not (isinstance(v, float) and math.isnan(v)) else "-".rjust(int(fmt.split(".")[0]))
+
+    def pm(mean, std, width: int, prec: int = 3) -> str:
+        if isinstance(mean, float) and math.isnan(mean):
+            return "-".rjust(width)
+        return f"{mean:.{prec}f}±{std:.{prec}f}".rjust(width)
 
     for cond in ("clean", "noise"):
         items = [s for s in summary if s["condition"] == cond]
         if not items:
             continue
-        title = "ẢNH GỐC" if cond == "clean" else f"ẢNH CÓ NHIỄU (sigma = {noise_sigma})"
+        if cond == "clean":
+            title = "ẢNH GỐC"
+        else:
+            title = f"ẢNH CÓ NHIỄU (sigma = {noise_sigma}, {noise_seeds} seed)"
         print(f"\n=== PHẦN B — {title} — {n_pairs} cặp ===")
-        header = (f"{'Kernel':<17}|{'Recall':>7} |{'Prec':>6} |{'F1':>6} |{'Recall nét mảnh':>16} |"
-                  f"{'Lỗi giả/ảnh':>12} |{'SNR':>6} |{'Blur ms':>8}")
+        header = (f"{'Kernel':<17}|{'Recall±sd':>14} |{'Prec±sd':>12} |{'F1±sd':>14} |"
+                  f"{'Recall nét mảnh':>16} |{'Lỗi giả/ảnh':>12} |{'SNR':>6} |{'Blur ms':>8}")
         print(header)
         print("-" * len(header))
         for s in items:
             mark = "  <- đang dùng" if s["kernel"] == CURRENT_KERNEL else ""
-            print(f"{kernel_label(int(s['kernel'])):<17}|{f(s['recall'], '7.3f')} |"
-                  f"{f(s['precision'], '6.3f')} |{f(s['f1'], '6.3f')} |{f(s['recall_thin'], '16.3f')} |"
+            print(f"{kernel_label(int(s['kernel'])):<17}|"
+                  f"{pm(s['recall'], s['recall_std'], 14)} |"
+                  f"{pm(s['precision'], s['precision_std'], 12)} |"
+                  f"{pm(s['f1'], s['f1_std'], 14)} |{f(s['recall_thin'], '16.3f')} |"
                   f"{f(s['false_blobs_per_img'], '12.2f')} |{f(s['snr'], '6.2f')} |"
                   f"{f(s['time_blur_ms'], '8.2f')}{mark}")
     print("Recall nét mảnh: chỉ tính lớp " + ", ".join(THIN_CLASSES) + ".")
+    print("±sd: độ lệch chuẩn giữa các cặp / các seed nhiễu (xem cột recall_std trong CSV).")
 
 
 def conclusions(theory: List[Dict[str, object]], summary: List[Dict[str, object]]) -> List[str]:
@@ -571,13 +568,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=Path("data"),
                         help="Thư mục chứa pairs_manifest.csv (mặc định: data).")
     parser.add_argument("--kernels", type=int, nargs="+", default=DEFAULT_KERNELS,
-                        help="Các kích thước kernel cần thử (mặc định: 1 3 5 6 7).")
+                        help="Các kích thước kernel cần thử (mặc định: 1 3 5 7; kernel chẵn chỉ vào phần lý thuyết).")
     parser.add_argument("--limit", type=int, default=0, help="Chỉ chạy N cặp đầu tiên (0 = tất cả).")
     parser.add_argument("--per-class", type=int, default=0,
                         help="Lấy N cặp mỗi lớp lỗi (0 = tất cả). Gợi ý: 5.")
     parser.add_argument("--noise-sigma", type=float, default=6.0,
                         help="Độ lệch chuẩn nhiễu Gaussian cho điều kiện 'noise' (0 = bỏ điều kiện này).")
-    parser.add_argument("--repeats", type=int, default=1, help="Số lần lặp đo thời gian (mặc định: 1).")
+    parser.add_argument("--noise-seeds", type=int, default=3,
+                        help="Số seed nhiễu khác nhau cho mỗi cặp (mặc định: 3).")
+    parser.add_argument("--repeats", type=int, default=3, help="Số lần lặp đo thời gian (mặc định: 3).")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--theory-only", action="store_true", help="Chỉ chạy phần lý thuyết (không cần ảnh).")
     parser.add_argument("--output-dir", type=Path, default=Path("experiments"),
@@ -590,8 +589,14 @@ def main(argv=None) -> None:
     kernels = sorted(set(args.kernels))
     if any(k < 1 for k in kernels):
         raise SystemExit("[LỖI] Kích thước kernel phải >= 1.")
+    even_kernels = [k for k in kernels if k % 2 == 0]
+    if even_kernels:
+        print(f"[CẢNH BÁO] Kernel chẵn {even_kernels} không dùng được với "
+              "cv2.GaussianBlur; chỉ đưa vào bảng lý thuyết, không chạy thực nghiệm.")
+        kernels = [k for k in kernels if k % 2 == 1]
     if CURRENT_KERNEL not in kernels:
         kernels = sorted(kernels + [CURRENT_KERNEL])
+    theory_kernels = sorted(set(kernels) | set(even_kernels) | set(THEORY_EXTRA_KERNELS))
 
     output_dir: Path = args.output_dir
     chart_path = output_dir / "charts" / "blur_comparison.png"
@@ -617,7 +622,7 @@ def main(argv=None) -> None:
         if args.limit > 0:
             pairs = pairs[: args.limit]
 
-    theory = theory_table(kernels)
+    theory = theory_table(theory_kernels)
     print_theory(theory)
 
     rows: List[Dict[str, object]] = []
@@ -627,7 +632,7 @@ def main(argv=None) -> None:
         print(f"\nTìm thấy {len(pairs)} cặp ảnh trong '{args.data_dir}'. Kernel: {kernels}")
         for index, pair in enumerate(pairs, start=1):
             try:
-                pair_rows, pair_visual = evaluate_pair(pair, kernels, args, check_consistency=(done == 0))
+                pair_rows, pair_visual = evaluate_pair(pair, kernels, args)
             except (ValueError, cv2.error) as exc:
                 print(f"[{index}/{len(pairs)}] Bỏ qua {pair['pair_id']}: {exc}")
                 continue
@@ -643,7 +648,7 @@ def main(argv=None) -> None:
 
     summary = summarize(rows) if rows else []
     if summary:
-        print_summary(summary, done, args.noise_sigma)
+        print_summary(summary, done, args.noise_sigma, args.noise_seeds)
 
     print("\n=== KẾT LUẬN (sinh từ số liệu) ===")
     for line in conclusions(theory, summary):

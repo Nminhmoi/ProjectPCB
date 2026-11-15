@@ -7,7 +7,7 @@
 | STT | Vấn đề / Câu hỏi của Thầy | Hướng giải quyết & Minh chứng của Nhóm |
 | :---: | :--- | :--- |
 | **1** | Đánh giá chỉ số các phương pháp khác nhau, giải thích tại sao dùng ORB mà không dùng SIFT? | Xây dựng script benchmark đối sánh **ORB vs SIFT vs AKAZE** đo đạc định lượng: thời gian thực thi (ms), số lượng inlier, sai số tái chiếu (reprojection error). |
-| **2** | Tại sao lại dùng `max_features = 5000`, có số liệu chứng minh không? | Thực hiện khảo sát tham số (Ablation Study) trên dải 500 đến 10.000 điểm đặc trưng, vẽ biểu đồ Pareto để chỉ ra 5000 là điểm tối ưu cân bằng tốc độ và độ chính xác. |
+| **2** | Tại sao lại dùng `max_features = 2000`, có số liệu chứng minh không? | Thực hiện khảo sát tham số (Ablation Study) trên dải 500 đến 10.000 điểm đặc trưng, đo sai số góc (corner error) và F1 phát hiện lỗi trên cả 693 cặp để chỉ ra 2000 là điểm cân bằng tốc độ/độ chính xác. |
 | **3** | Dữ liệu đầu vào: Xử lý đối với ảnh màu (chụp bằng camera công nghiệp) $\rightarrow$ chuyển sang ảnh nhị phân? | Chuyển đổi toàn bộ sang dataset ảnh màu công nghiệp **PKU-Market-PCB**, áp dụng kỹ thuật tách không gian màu (HSV/Lab) kết hợp cân bằng sáng CLAHE để khử phản quang kim loại. |
 | **4** | Chạy xong phải có trực quan hóa (visual lines) các kết quả, sau khi homography khớp như thế nào? | Bổ sung 2 hình thức trực quan hóa: ảnh vẽ đường nối cặp đặc trưng (`drawMatches`) và ảnh bàn cờ (`checkerboard composite`) kiểm tra độ khít của đường mạch. |
 | **5** | Làm mờ tại sao dùng 3x3, có dùng 5x5 hay 6x6 được không? Nêu điểm tối ưu? | Chứng minh cơ sở toán học (kernel phải lẻ để có tâm đối xứng) và thực nghiệm chỉ ra kernel 3x3 bảo toàn vết lỗi vi mô (micro-defects) tốt hơn kernel 5x5. |
@@ -18,32 +18,44 @@
 ## 2. KẾT QUẢ THỰC NGHIỆM ĐỐI SÁNH KHOA HỌC (BENCHMARKING)
 
 ### 2.1. Đối sánh bộ dò đặc trưng: ORB vs. SIFT
-Thử nghiệm trên tập ảnh màu thực tế của PKU-Market-PCB:
+Thực nghiệm trên toàn bộ **693 cặp ảnh màu** của PKU-Market-PCB, dùng chung một pipeline căn chỉnh (`module_preprocess.align_images_with_stats`), `max_features = 2000`. Mỗi ảnh test được nắn lệch giả lập ngẫu nhiên (±3°, ±40 px, ±3%) để đo đúng sai số của phép căn chỉnh; phát hiện lỗi được đo trên ảnh gốc đã căn chỉnh lại.
 
-| Bộ dò đặc trưng | Thời gian trích xuất & ghép (ms) | Số Keypoints trung bình | Số cặp Matches | Tỷ lệ Inliers RANSAC (%) | Sai số tái chiếu (Reprojection Error - px) |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **SIFT** | *... ms* | *...* | *...* | *... %* | *... px* |
-| **ORB** | *... ms* | *...* | *...* | *... %* | *... px* |
-| **AKAZE** | *... ms* | *...* | *...* | *... %* | *... px* |
+| Bộ dò đặc trưng | Thời gian căn chỉnh (ms) | Keypoints | Matches | Inliers RANSAC (%) | Reprojection Error (px) | Corner Error trung vị / p95 (px) | Recall | Precision | F1 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **ORB** | **232.7** | 2000 | 1402 | 94.7 | 0.661 | 0.280 / 0.934 | 0.9611 | 0.9839 | 0.9723 |
+| **SIFT** | 1485.1 | 1980 | 1458 | 98.2 | **0.085** | **0.035 / 0.089** | **0.9672** | 0.9833 | **0.9752** |
+| **AKAZE** | *chưa đo* | – | – | – | – | – | – | – | – |
 
 > **Nhận xét & Kết luận:**  
-> - ORB nhanh gấp **... lần** so với SIFT do sử dụng bộ mô tả nhị phân (Binary Descriptor) và khoảng cách Hamming, phù hợp với yêu cầu xử lý thời gian thực của camera công nghiệp.  
-> - Sai số tái chiếu của ORB đạt **... px** (hoàn toàn đáp ứng tiêu chuẩn nắn chỉnh mạch dưới 1.5 px).  
-> - ORB là thuật toán mở (free, open-source), không vướng bản quyền thương mại.
+> - ORB nhanh gấp **6.4 lần** SIFT (233 ms so với 1485 ms) nhờ bộ mô tả nhị phân (Binary Descriptor) và khoảng cách Hamming, phù hợp yêu cầu thời gian thực của camera công nghiệp.  
+> - SIFT chính xác hơn: sai số góc trung vị **0.035 px** so với **0.280 px** của ORB; số cặp có sai số góc > 1 px là 3/693 (SIFT) so với 30/693 (ORB).  
+> - Chất lượng phát hiện lỗi cuối cùng gần như tương đương (F1 0.9752 so với 0.9723) vì bước trừ vi sai có dung sai vị trí ±2 px.  
+> - Cả hai đều có chung 3 cặp ngoại lai (cao nhất 47 px, cùng cặp `06_spur_08`) — lỗi này không phụ thuộc bộ dò mà do kiểm tra homography quá lỏng, cần siết ngưỡng ở bước sau.  
+> - **Chọn ORB làm mặc định** vì tốc độ gấp 6.4 lần trong khi F1 chỉ thấp hơn 0.003; SIFT để dành cho chế độ "độ chính xác cao".  
+> - AKAZE chưa chạy được vì `opencv-python` hiện tại không kèm module `xfeatures2d`; cần cài `opencv-contrib-python` để bổ sung. Script tự bỏ qua detector thiếu và cảnh báo.
 
 ---
 
-### 2.2. Khảo sát tham số `max_features = 5000` (Ablation Study)
-Khảo sát ảnh hưởng của số lượng đặc trưng tối đa lên sai số căn chỉnh và thời gian thực thi:
+### 2.2. Khảo sát tham số `max_features = 2000` (Ablation Study)
+Khảo sát ảnh hưởng của số lượng đặc trưng tối đa lên sai số căn chỉnh và thời gian thực thi trên **693 cặp ảnh** (mỗi giá trị chạy 1 lần/cặp; thời gian lấy trung vị để loại nhiễu hệ thống):
 
-*(Chèn biểu đồ thực nghiệm)*  
 ![Biểu đồ khảo sát max_features](experiments/charts/max_features_study.png)
 
+| `max_features` | Keypoints | Matches | Inliers | Reprojection (px) | Corner trung vị (px) | Corner p95 (px) | Số cặp > 1 px | Thời gian (ms) | F1 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 500 | 500 | 351 | 268 | 0.657 | 0.410 | 1.234 | 64 | **90.7** | 0.9641 |
+| 1000 | 1000 | 706 | 537 | 0.661 | 0.373 | 1.006 | 36 | 94.4 | 0.9666 |
+| **2000 (đang dùng)** | 2000 | 1402 | 1063 | 0.657 | 0.280 | 0.934 | 30 | 107.4 | 0.9668 |
+| 3000 | 2984 | 2079 | 1572 | 0.661 | 0.266 | 0.847 | 19 | 124.5 | 0.9676 |
+| 5000 | 4847 | 3354 | 2530 | 0.659 | 0.243 | 0.814 | 20 | 174.2 | 0.9691 |
+| 10000 | 9432 | 6403 | 4817 | 0.667 | **0.239** | **0.820** | **17** | 377.3 | **0.9699** |
+
 * **Phân tích số liệu:**
-  * Dưới 2000 features: Sai số tái chiếu lớn (> 2.5 px), một số vùng bo mạch ít chi tiết bị fail RANSAC.
-  * Từ 3000 – 5000 features: Sai số giảm nhanh và tiệm cận mức bão hòa (< 1.0 px).
-  * Trên 5000 features: Thời gian tính toán tăng mạnh tuyến tính nhưng sai số tái chiếu hầu như không giảm thêm.
-* **Kết luận:** Lựa chọn `max_features = 5000` là điểm cân bằng Pareto tối ưu giữa tốc độ và độ chính xác căn chỉnh.
+  * Sai số tái chiếu gần như không đổi (~0.66 px) ở mọi mức, vì RANSAC đã lọc inlier trước khi tính. Chỉ số phản ánh đúng chất lượng căn chỉnh là **sai số góc** — giảm từ 0.410 px (500) xuống 0.239 px (10.000).
+  * Từ 500 → 2000: sai số góc giảm mạnh (0.410 → 0.280), số cặp lỗi > 1 px giảm từ 64 xuống 30, thời gian chỉ tăng 17 ms.
+  * Từ 3000 trở lên: lợi ích bão hòa (0.266 → 0.239 px, F1 +0.002) nhưng thời gian tăng 1.4–3.0 lần (124 → 377 ms).
+  * Có 3 cặp ngoại lai giống nhau ở **mọi** mức (`06_spur_08` ~47 px, `04_spurious_copper_11` ~28 px), nên không thể sửa bằng cách tăng `max_features`; cần siết kiểm tra homography.
+* **Kết luận:** Lựa chọn `max_features = 2000` — sai số góc 0.280 px (đạt chuẩn < 1.5 px), F1 0.9668, thời gian căn chỉnh 107 ms. Đây là điểm cân bằng Pareto: tăng lên 5000 chỉ cải thiện 0.037 px nhưng chậm hơn 1.6 lần; nếu ưu tiên độ chính xác có thể dùng 3000–5000.
 
 ---
 
@@ -51,26 +63,38 @@ Khảo sát ảnh hưởng của số lượng đặc trưng tối đa lên sai 
 Để kiểm tra trực quan độ chính xác của quá trình nắn ảnh (Homography):
 
 #### a. Đường nối các cặp đặc trưng (Feature Matching Lines)
-*(Hiển thị các cặp điểm khớp nhau giữa ảnh mẫu và ảnh kiểm tra)*  
-![Feature Matches](results/feature_matches.jpg)
+*(Các cặp điểm khớp inlier giữa ảnh mẫu và ảnh kiểm tra — ORB, cặp `01_missing_hole_01`)*  
+![Feature Matches](experiments/vis/01_missing_hole_01_ORB_matches.jpg)
 
 #### b. Kiểm tra độ khít bằng ảnh bàn cờ (Checkerboard Composite)
 *(Ghép xen kẽ các ô cờ giữa ảnh mẫu và ảnh kiểm tra đã nắn Homography. Nếu căn chỉnh chuẩn, các đường mạch sẽ nối liền liên tục qua ranh giới các ô cờ mà không bị gãy hoặc lệch)*  
-![Checkerboard Alignment](results/checkerboard_alignment.jpg)
+![Checkerboard Alignment](experiments/vis/01_missing_hole_01_ORB_checkerboard.jpg)
 
 ---
 
 ### 2.4. Khảo sát kích thước Kernel làm mờ Gaussian (Blur)
-* **Về mặt toán học (Tại sao không dùng kernel chẵn 6x6):**
-  * Bộ lọc không gian (Spatial Filter) bắt buộc phải có kích thước **lẻ** ($3 \times 3, 5 \times 5$) để xác định duy nhất **tọa độ pixel tâm (Anchor Point)**: $\text{center} = (\lfloor k/2 \rfloor, \lfloor k/2 \rfloor)$. 
-  * Kernel chẵn như $6 \times 6$ không có điểm tâm đối xứng, làm lệch pha không gian (spatial shift) và gây méo biên đường mạch.
-* **Về mặt kích thước ($3 \times 3$ vs $5 \times 5$):**
-  * Các khuyết tật trên PCB như lỗ rỗ (*pin-hole*), cầu chì đứt vi mô hay gai đồng (*spur*) chỉ có kích thước bề ngang từ $2 - 4\text{ px}$.
-  * Kernel $5 \times 5$ làm nhòe quá mạnh, dẫn đến hiện tượng "nuốt chửng" các lỗi nhỏ hoặc tạo viền giả dày ở các cạnh đường mạch khi trừ vi sai.
-  * Kernel $3 \times 3$ vừa đủ để triệt tiêu nhiễu hạt cảm biến camera công nghiệp mà vẫn bảo toàn nguyên vẹn cạnh vi sai của các lỗi nhỏ.
+Khảo sát trên **693 cặp ảnh**, mỗi cặp chạy 4 kernel trên ảnh gốc và 3 seed nhiễu Gaussian ($\sigma = 6.0$) để kết quả không phụ thuộc may rủi một lần sinh nhiễu.
 
-*(Ảnh so sánh trực quan lỗi vi mô khi dùng kernel 3x3 và 5x5)*  
-![So sánh Blur](results/blur_comparison.png)
+* **Về mặt toán học (Tại sao không dùng kernel chẵn 6x6):**
+  * Bộ lọc không gian (Spatial Filter) bắt buộc phải có kích thước **lẻ** ($3 \times 3, 5 \times 5$) để xác định duy nhất **tọa độ pixel tâm (Anchor Point)**: $\text{center} = (\lfloor k/2 \rfloor, \lfloor k/2 \rfloor)$.
+  * Kernel chẵn như $6 \times 6$ không có pixel trung tâm: đo được ảnh bị **trôi 0.50 px** theo cả hai trục, tọa độ bbox lỗi lệch theo. OpenCV còn từ chối trực tiếp (`ksize` phải lẻ). Mức làm mờ của 6x6 ($\sigma = 1.25$) lại nằm giữa 5x5 và 7x7 nên không có lợi ích riêng.
+
+* **Kết quả thực nghiệm:**
+
+| Kernel | Recall±sd (gốc) | F1±sd (gốc) | Recall nét mảnh | F1±sd (nhiễu) | SNR (nhiễu) | Thời gian blur (ms) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 1x1 (không blur) | 0.950±0.168 | 0.967±0.118 | 0.940 | 0.948±0.147 | 1.71 | 3.89 |
+| **3x3 (đang dùng)** | 0.967±0.144 | 0.975±0.106 | 0.964 | 0.980±0.102 | 2.89 | **3.07** |
+| 5x5 | 0.970±0.142 | 0.976±0.106 | 0.966 | 0.981±0.101 | 3.15 | 3.80 |
+| 7x7 | 0.967±0.149 | 0.975±0.110 | 0.964 | 0.982±0.101 | 3.31 | 4.59 |
+
+* **Nhận xét:**
+  * Không làm mờ (1x1) kém rõ rệt: F1 giảm còn 0.967 (gốc) / 0.948 (nhiễu), recall nét mảnh 0.940, SNR thấp → cần blur để triệt nhiễu hạt cảm biến và viền răng cưa trước khi trừ ảnh.
+  * Về lý thuyết, 3x3 giữ **75%** tương phản nét rộng 2 px (5x5: 62%, 7x7: 50%) trong khi vẫn giảm nhiễu trắng còn 38% (5x5: 27%) — tức bảo toàn lỗi vi mô tốt hơn.
+  * Thực nghiệm 3x3 / 5x5 / 7x7 chênh nhau chỉ 0.001–0.002 F1, nằm trong độ lệch chuẩn → **tương đương về thống kê**. 3x3 nhanh nhất (3.07 ms) và giữ nét mảnh tốt nhất về lý thuyết.
+* **Kết luận:** Giữ **kernel $3 \times 3$** — cân bằng tốt nhất giữa khử nhiễu, bảo toàn khuyết tật vi mô và tốc độ; 5x5/7x7 không cải thiện chất lượng phát hiện nhưng chậm hơn và làm mờ lỗi nhỏ.
+
+![So sánh Blur](experiments/charts/blur_comparison.png)
 
 ---
 

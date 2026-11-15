@@ -40,7 +40,6 @@ import csv
 import math
 import statistics
 import sys
-import time
 import zlib
 from collections import defaultdict
 from pathlib import Path
@@ -59,7 +58,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dataset_utils import find_pairs, load_image  # noqa: E402
 from module_detection import extract_bounding_boxes  # noqa: E402
-from module_preprocess import align_images, detect_difference  # noqa: E402
+from module_preprocess import (  # noqa: E402
+    DEFAULT_MAX_FEATURES,
+    AlignmentError,
+    align_images_with_stats,
+    detect_difference,
+)
 
 import matplotlib
 
@@ -68,88 +72,48 @@ if "ipykernel" not in sys.modules:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-DEFAULT_VALUES = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7500, 10000]
-CURRENT_VALUE = 5000  # giá trị đang dùng trong module_preprocess.align_images
+DEFAULT_VALUES = [500, 1000, 2000, 3000, 5000, 7500, 10000]
+CURRENT_VALUE = DEFAULT_MAX_FEATURES  # giá trị đang dùng trong module_preprocess.align_images
 
 
-# 1. Căn chỉnh ORB có đo đạc (sao chép đúng logic align_images)
+# 1. Căn chỉnh ORB có đo đạc — dùng chung module_preprocess
 def align_orb_measured(
     gray_template: np.ndarray,
     gray_test: np.ndarray,
     max_features: int,
     keep_percentage: float = 0.8,
 ) -> Dict[str, object]:
-    """Chạy đúng các bước của align_images nhưng trả về số liệu từng bước.
+    """Gọi `align_images_with_stats` của module chính và đổi tên khóa thời gian.
 
-    Không warp ảnh (warp không phụ thuộc max_features). Trả về dict có H
-    (None nếu thất bại) và lý do thất bại trong 'error'.
+    Không còn bản sao logic: mọi thay đổi trong `align_images` tự động áp dụng
+    cho thí nghiệm. `time_ransac_ms` tương ứng `time_homography_ms`.
     """
-    out: Dict[str, object] = {
-        "kp_template": 0, "kp_test": 0, "matches": 0, "inliers": 0,
-        "inlier_ratio": 0.0, "reprojection_error": float("nan"),
-        "time_detect_ms": 0.0, "time_match_ms": 0.0, "time_ransac_ms": 0.0,
-        "time_total_ms": 0.0, "success": False, "H": None, "error": "",
+    try:
+        _, stats = align_images_with_stats(
+            gray_template,
+            gray_test,
+            max_features=max_features,
+            keep_percentage=keep_percentage,
+            detector="ORB",
+        )
+    except AlignmentError as exc:
+        stats = exc.stats
+
+    return {
+        "kp_template": stats.get("kp_template", 0),
+        "kp_test": stats.get("kp_test", 0),
+        "matches": stats.get("matches", 0),
+        "inliers": stats.get("inliers", 0),
+        "inlier_ratio": stats.get("inlier_ratio", 0.0),
+        "reprojection_error": stats.get("reprojection_error", float("nan")),
+        "time_detect_ms": stats.get("time_detect_ms", 0.0),
+        "time_match_ms": stats.get("time_match_ms", 0.0),
+        "time_ransac_ms": stats.get("time_homography_ms", 0.0),
+        "time_total_ms": stats.get("time_total_ms", 0.0),
+        "success": bool(stats.get("success")),
+        "H": stats.get("H"),
+        "error": stats.get("error", ""),
     }
-    t0 = time.perf_counter()
-
-    orb = cv2.ORB_create(nfeatures=max_features)
-    kp_template, des_template = orb.detectAndCompute(gray_template, None)
-    kp_test, des_test = orb.detectAndCompute(gray_test, None)
-    t1 = time.perf_counter()
-    out["time_detect_ms"] = (t1 - t0) * 1000.0
-    out["kp_template"], out["kp_test"] = len(kp_template), len(kp_test)
-
-    def finish(error: str = "") -> Dict[str, object]:
-        out["error"] = error
-        out["time_total_ms"] = (time.perf_counter() - t0) * 1000.0
-        return out
-
-    if des_template is None or des_test is None:
-        return finish("không trích được keypoint")
-
-    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = matcher.match(des_test, des_template)
-    t2 = time.perf_counter()
-    out["time_match_ms"] = (t2 - t1) * 1000.0
-    out["matches"] = len(matches)
-    if len(matches) < 4:
-        return finish(f"chỉ có {len(matches)} cặp khớp")
-
-    matches = sorted(matches, key=lambda m: m.distance)
-    num_keeps = min(len(matches), max(int(len(matches) * keep_percentage), 4))
-    good = matches[:num_keeps]
-    pts_test = np.float32([kp_test[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-    pts_template = np.float32([kp_template[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-
-    H, mask = cv2.findHomography(pts_test, pts_template, cv2.RANSAC, 3.0)
-    out["time_ransac_ms"] = (time.perf_counter() - t2) * 1000.0
-    if H is None or mask is None:
-        return finish("không tìm được homography")
-
-    inliers = mask.ravel().astype(bool)
-    num_inliers = int(np.count_nonzero(inliers))
-    out["inliers"] = num_inliers
-    out["inlier_ratio"] = num_inliers / len(good)
-    if num_inliers > 0:
-        projected = cv2.perspectiveTransform(pts_test[inliers], H)
-        errors = np.linalg.norm(projected - pts_template[inliers], axis=2)
-        out["reprojection_error"] = float(np.median(errors))
-
-    # Các kiểm tra độ tin cậy y hệt align_images
-    if num_inliers < 12 or out["inlier_ratio"] < 0.15:
-        return finish("ít inliers")
-    if not np.isfinite(out["reprojection_error"]) or out["reprojection_error"] >= 3.0:
-        return finish("reprojection error lớn")
-    if not np.all(np.isfinite(H)) or abs(H[2, 2]) < 1e-8:
-        return finish("H không hợp lệ")
-    H = H / H[2, 2]
-    det = np.linalg.det(H[:2, :2])
-    if not (0.5 < det < 2.0):
-        return finish(f"det bất thường ({det:.3f})")
-
-    out["H"] = H
-    out["success"] = True
-    return finish()
 
 
 # 2. Tiện ích: nắn lệch giả lập, sai số góc, so khớp bbox
@@ -204,20 +168,25 @@ def match_boxes(pred, gt) -> Tuple[int, int]:
 
 
 def detection_counts(
-    template: np.ndarray, warped_test: np.ndarray, H: Optional[np.ndarray],
+    template: np.ndarray, img_test: np.ndarray, H: Optional[np.ndarray],
     gt_boxes: List[Tuple[int, int, int, int]],
 ) -> Dict[str, int]:
-    """Chạy phần sau của pipeline (trừ vi sai + bbox) với H đã ước lượng."""
+    """Chạy phần sau của pipeline (trừ vi sai + bbox) trên ẢNH GỐC.
+
+    `img_test` là ảnh test chưa bị nắn lệch/nội suy; `H` là ánh xạ
+    img_test -> template. Nhờ vậy recall/F1 đo đúng chất lượng phát hiện,
+    không bị phép warp giả lập làm mờ lỗi siêu nhỏ.
+    """
     h, w = template.shape[:2]
     if H is None:
         # Như main.py: căn chỉnh thất bại -> dùng ảnh chưa căn chỉnh
-        aligned = warped_test
+        aligned = img_test
         valid = None
     else:
-        aligned = cv2.warpPerspective(warped_test, H, (w, h), flags=cv2.INTER_LINEAR,
+        aligned = cv2.warpPerspective(img_test, H, (w, h), flags=cv2.INTER_LINEAR,
                                       borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-        # Bỏ vùng đen do nắn lệch giả lập (không có trong dữ liệu thật)
-        valid = cv2.warpPerspective(np.full(warped_test.shape[:2], 255, np.uint8), H,
+        # Bỏ vùng đen do phép căn chỉnh đưa vào (không có trong dữ liệu thật)
+        valid = cv2.warpPerspective(np.full(img_test.shape[:2], 255, np.uint8), H,
                                     (w, h), flags=cv2.INTER_NEAREST)
         valid = cv2.erode(valid, np.ones((31, 31), np.uint8))
     diff = detect_difference(template, aligned)
@@ -229,8 +198,8 @@ def detection_counts(
 
 
 # 3. Đánh giá 1 cặp ảnh với mọi giá trị max_features
-def evaluate_pair(pair: Dict[str, object], values: List[int], args: argparse.Namespace,
-                  check_consistency: bool) -> List[Dict[str, object]]:
+def evaluate_pair(pair: Dict[str, object], values: List[int],
+                  args: argparse.Namespace) -> List[Dict[str, object]]:
     template = load_image(Path(pair["template_path"]))
     test = load_image(Path(pair["test_path"]))
     h, w = test.shape[:2]
@@ -262,18 +231,12 @@ def evaluate_pair(pair: Dict[str, object], values: List[int], args: argparse.Nam
                              if res["success"] else float("nan")),
         }
         if not args.no_detection:
-            row.update(detection_counts(template, warped, res["H"], gt_boxes))
+            # Đo phát hiện trên ẢNH GỐC, không dùng ảnh đã bị nội suy warp.
+            # H ước lượng trên ảnh warp (warped -> template); ghép với H_true
+            # (test -> warped) để được ánh xạ test -> template: H_detect.
+            H_detect = (res["H"] @ H_true) if res["success"] else None
+            row.update(detection_counts(template, test, H_detect, gt_boxes))
         rows.append(row)
-
-        # Kiểm tra 1 lần: logic sao chép phải cho kết quả y hệt align_images
-        if check_consistency and value == CURRENT_VALUE and res["success"]:
-            ref = align_images(template, warped, max_features=value)
-            mine = cv2.warpPerspective(warped, res["H"], (template.shape[1], template.shape[0]),
-                                       flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
-                                       borderValue=0)
-            same = np.array_equal(ref, mine)
-            print(f"    Kiểm tra đối chiếu với module_preprocess.align_images: "
-                  f"{'KHỚP' if same else 'KHÁC (kiểm tra lại code!)'}")
     return rows
 
 
@@ -488,8 +451,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0, help="Chỉ chạy N cặp đầu tiên (0 = tất cả).")
     parser.add_argument("--per-class", type=int, default=0,
                         help="Lấy N cặp mỗi lớp lỗi (0 = tất cả). Gợi ý: 5.")
-    parser.add_argument("--repeats", type=int, default=1,
-                        help="Số lần lặp đo thời gian, lấy trung vị (mặc định: 1).")
+    parser.add_argument("--repeats", type=int, default=3,
+                        help="Số lần lặp đo thời gian, lấy trung vị (mặc định: 3).")
     parser.add_argument("--warp-angle", type=float, default=3.0, help="Góc xoay giả lập tối đa (độ).")
     parser.add_argument("--warp-shift", type=float, default=40.0, help="Tịnh tiến giả lập tối đa (px).")
     parser.add_argument("--warp-scale", type=float, default=0.03, help="Co giãn giả lập tối đa (0.03 = ±3%%).")
@@ -534,7 +497,7 @@ def main(argv=None) -> List[Dict[str, object]]:
     done = 0
     for index, pair in enumerate(pairs, start=1):
         try:
-            pair_rows = evaluate_pair(pair, values, args, check_consistency=(done == 0))
+            pair_rows = evaluate_pair(pair, values, args)
         except (ValueError, cv2.error) as exc:
             print(f"[{index}/{len(pairs)}] Bỏ qua {pair['pair_id']}: {exc}")
             continue

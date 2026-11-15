@@ -2,3 +2,7 @@ opencv-python
 numpy
 matplotlib
 scikit-learn
+
+# AKAZE (tùy chọn, chỉ cần cho experiments/exp_feature_matching.py):
+#   pip install opencv-contrib-python   # thay thế opencv-python, KHÔNG cài song song
+# OpenCV 5.x không còn cv2.AKAZE_create trong bản opencv-python thường.
