@@ -11,9 +11,15 @@ if hasattr(sys.stdout, "reconfigure"):
 from module_preprocess import (
     DETECTORS,
     DEFAULT_DETECTOR,
+    DEFAULT_FALLBACKS,
+    DEFAULT_HYSTERESIS_LOW,
     DEFAULT_MAX_FEATURES,
+    DEFAULT_MIN_AREA,
+    DEFAULT_MIN_NCC,
+    DEFAULT_OPEN_KSIZE,
+    DEFAULT_THRESHOLD_FLOOR,
     AlignmentError,
-    align_images_with_stats,
+    align_images_robust,
     detect_difference,
 )
 
@@ -101,7 +107,13 @@ def clean_output_directories(directories: list = None) -> int:
 
 
 def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
-                 max_features: int = DEFAULT_MAX_FEATURES) -> tuple:
+                 max_features: int = DEFAULT_MAX_FEATURES,
+                 fallbacks=DEFAULT_FALLBACKS,
+                 min_ncc=DEFAULT_MIN_NCC,
+                 threshold_floor: int = DEFAULT_THRESHOLD_FLOOR,
+                 open_ksize: int = DEFAULT_OPEN_KSIZE,
+                 hysteresis_low=DEFAULT_HYSTERESIS_LOW,
+                 min_area: int = DEFAULT_MIN_AREA) -> tuple:
     """
     Chạy toàn bộ pipeline trên 1 cặp ảnh.
 
@@ -109,6 +121,8 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     pair_id, test_path, template_path, class_name, annotation_path, ...
 
     `detector` chọn bộ đặc trưng căn chỉnh: ORB / SIFT / AKAZE.
+    `fallbacks` detector dự phòng khi detector chính bị từ chối (P0.1),
+    `min_ncc` ngưỡng kiểm chứng căn chỉnh bằng điểm ảnh (None = tắt).
 
     Trả về: (boxes, crop_paths, output_path, thời_gian_giây, align_stats)
     """
@@ -122,11 +136,13 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     img_test_color = load_image(test_path)
     img_temp_color = load_image(temp_path)
 
-    # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (detector + Homography)
+    # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (detector + Homography),
+    #    kiểm chứng bằng NCC; bị từ chối thì thử detector dự phòng.
     try:
-        img_test_aligned, align_stats = align_images_with_stats(
+        img_test_aligned, align_stats = align_images_robust(
             img_temp_color, img_test_color,
             max_features=max_features, detector=detector,
+            fallbacks=fallbacks, min_ncc=min_ncc,
         )
     except AlignmentError as exc:
         print(f"    [CẢNH BÁO] Căn chỉnh thất bại: {exc} — dùng ảnh chưa căn chỉnh")
@@ -134,10 +150,14 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
         align_stats = exc.stats
 
     # 3. Trừ vi sai và nhị phân hóa Otsu, khử nhiễu Morphology
-    diff_mask = detect_difference(img_temp_color, img_test_aligned)
+    diff_mask = detect_difference(
+        img_temp_color, img_test_aligned,
+        threshold_floor=threshold_floor, open_ksize=open_ksize,
+        hysteresis_low=hysteresis_low,
+    )
 
     # 4. Tìm Contours và trích xuất Bounding Boxes
-    boxes = extract_bounding_boxes(diff_mask, min_area=20)
+    boxes = extract_bounding_boxes(diff_mask, min_area=min_area)
 
     # 5. Cắt và lưu các ảnh con đốm lỗi (mỗi ảnh 1 thư mục riêng)
     crop_dir = os.path.join('crops', str(img_id))
@@ -188,6 +208,33 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_FEATURES,
         help=f"Số đặc trưng tối đa cho mỗi ảnh (mặc định: {DEFAULT_MAX_FEATURES}).",
     )
+    default_fb = " ".join(d for d, _ in DEFAULT_FALLBACKS) or "none"
+    parser.add_argument(
+        "--fallback",
+        nargs="+",
+        default=[d for d, _ in DEFAULT_FALLBACKS],
+        help=f"Detector dự phòng khi căn chỉnh bị từ chối (mặc định: {default_fb}; "
+             "'none' = không dự phòng).",
+    )
+    parser.add_argument(
+        "--min-ncc",
+        type=float,
+        default=DEFAULT_MIN_NCC,
+        help=f"Ngưỡng NCC kiểm chứng căn chỉnh (mặc định: {DEFAULT_MIN_NCC}).",
+    )
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Tắt kiểm chứng NCC (hành vi cũ, không khuyến nghị).",
+    )
+    parser.add_argument("--threshold-floor", type=int, default=DEFAULT_THRESHOLD_FLOOR,
+                        help=f"Ngưỡng sàn khi nhị phân hóa (mặc định: {DEFAULT_THRESHOLD_FLOOR}).")
+    parser.add_argument("--open-ksize", type=int, default=DEFAULT_OPEN_KSIZE,
+                        help=f"Kernel morphology opening, 1 = bỏ (mặc định: {DEFAULT_OPEN_KSIZE}).")
+    parser.add_argument("--hysteresis-low", type=float, default=DEFAULT_HYSTERESIS_LOW,
+                        help="Tỷ lệ ngưỡng thấp cho hysteresis, vd 0.5 (mặc định: tắt).")
+    parser.add_argument("--min-area", type=int, default=DEFAULT_MIN_AREA,
+                        help=f"Diện tích tối thiểu của đốm lỗi (mặc định: {DEFAULT_MIN_AREA}).")
     return parser.parse_args()
 
 
@@ -214,13 +261,21 @@ def main():
             "       Cần pairs_manifest.csv (chạy experiments/build_pairs.py trước).\n"
         )
 
-    print(f" Bộ đặc trưng căn chỉnh : {args.detector}")
+    fallbacks = [] if [f.lower() for f in args.fallback] == ["none"] else \
+        [(f.upper(), args.max_features) for f in args.fallback]
+    min_ncc = None if args.no_verify else args.min_ncc
+
+    print(f" Bộ đặc trưng căn chỉnh : {args.detector}"
+          + (f" (dự phòng: {', '.join(f for f, _ in fallbacks)})" if fallbacks else ""))
+    print(f" Kiểm chứng NCC          : {'tắt' if min_ncc is None else f'>= {min_ncc}'}")
     print(f" Tìm thấy {len(pairs)} cặp ảnh trong '{args.data_dir}'")
     print("=" * 65)
 
     total_defects = 0
     total_crops = 0
     done = 0
+    n_fallback = 0
+    n_unverified = 0
 
     for idx, pair in enumerate(pairs, start=1):
         img_id = pair["pair_id"]
@@ -228,7 +283,10 @@ def main():
 
         try:
             boxes, crop_paths, output_path, elapsed, align_stats = process_pair(
-                pair, detector=args.detector, max_features=args.max_features
+                pair, detector=args.detector, max_features=args.max_features,
+                fallbacks=fallbacks, min_ncc=min_ncc,
+                threshold_floor=args.threshold_floor, open_ksize=args.open_ksize,
+                hysteresis_low=args.hysteresis_low, min_area=args.min_area,
             )
         except Exception as exc:
             print(f"    [LỖI] {exc}")
@@ -239,10 +297,18 @@ def main():
         total_crops += len(crop_paths)
 
         if align_stats.get("success"):
-            print(f"    Căn chỉnh        : {align_stats['inliers']} inliers "
+            print(f"    Căn chỉnh {align_stats['detector']:<6} : {align_stats['inliers']} inliers "
                   f"({align_stats['inlier_ratio'] * 100:.0f}%), "
                   f"reproj {align_stats['reprojection_error']:.2f} px, "
-                  f"{align_stats['time_total_ms']:.0f} ms")
+                  f"NCC {align_stats.get('ncc', float('nan')):.3f}, "
+                  f"{align_stats.get('time_all_attempts_ms', align_stats['time_total_ms']):.0f} ms")
+            if align_stats.get("fallback_used"):
+                n_fallback += 1
+                print(f"    [DỰ PHÒNG] {' -> '.join(align_stats.get('attempts', []))}")
+            if not align_stats.get("verified", True):
+                n_unverified += 1
+                print("    [CẢNH BÁO] Không phương án nào vượt kiểm chứng NCC — "
+                      "dùng H có NCC cao nhất, nên kiểm tra lại ảnh.")
         else:
             print(f"    Căn chỉnh        : THẤT BẠI — {align_stats.get('error', '?')}")
         print(f"    Số lỗi phát hiện : {len(boxes)}")
@@ -268,6 +334,7 @@ def main():
     print(" KET QUA TONG HOP:")
     print(f"- Số cặp chạy được      : {done}/{len(pairs)}")
     print(f"- Tổng số lỗi phát hiện : {total_defects}")
+    print(f"- Dùng detector dự phòng: {n_fallback} cặp; chưa kiểm chứng được: {n_unverified} cặp")
     print(f"- Tổng số crop đã lưu   : {total_crops}")
     print(f"- Tổng thời gian        : {total_time:.3f} giây")
     print(f"- Trung bình            : {total_time / max(done, 1):.3f} giây/cặp")

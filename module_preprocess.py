@@ -21,6 +21,28 @@ DEFAULT_MAX_FEATURES = 2000
 # Ten cu, giu de code/nhan xet cu van doc duoc. main.py nen truyen --detector.
 DETECTOR_NAME = DEFAULT_DETECTOR
 
+# --- P0.1: kiem chung homography bang diem anh (NCC) ----------------------
+# Sau khi tinh H, so khop template voi anh test da nan o do phan giai thap.
+# Can chinh dung tren PKU cho NCC ~0.998; cac cap can lech 7-47 px cho
+# NCC 0.80-0.95 (EXPERIMENT_REVIEW.md, muc 4 P0.1). Nguong chot bang
+# experiments/exp_alignment_check.py tren 693 cap. None = tat kiem tra.
+DEFAULT_MIN_NCC = 0.97
+APPEARANCE_WIDTH = 400          # chieu rong (px) anh thu nho de tinh NCC (~6 ms)
+APPEARANCE_BLUR = 3             # Gaussian sau khi thu nho: can bang do sac net giua
+                                # template (khong noi suy) va anh test (da noi suy).
+                                # Do tren anh mau: khop dung 0.995, lech 2 px 0.984,
+                                # lech 4 px 0.941, lech 7 px 0.857.
+# Thu lan luot khi detector chinh khong vuot kiem tra (align_images_robust).
+DEFAULT_FALLBACKS = (("SIFT", DEFAULT_MAX_FEATURES),)
+
+# --- Tham so nhi phan hoa ban do vi sai (P0.3 / P1.1) ---------------------
+# Gia tri mac dinh = pipeline da chay 693 cap (F1 0.972). Doi bang
+# experiments/exp_detection_params.py truoc khi sua o day.
+DEFAULT_THRESHOLD_FLOOR = 30    # nguong san: max(Otsu, floor)
+DEFAULT_OPEN_KSIZE = 3          # kernel morphology opening (<=1: bo opening)
+DEFAULT_HYSTERESIS_LOW = None   # vd 0.5: giu vung >= 0.5*nguong neu noi voi vung manh
+DEFAULT_MIN_AREA = 20           # dien tich toi thieu cua dom loi (module_detection)
+
 MATCHER_NORMS = {
     "ORB": cv2.NORM_HAMMING,
     "SIFT": cv2.NORM_L2,
@@ -128,12 +150,93 @@ def _gray_clahe(image: np.ndarray) -> np.ndarray:
     return clahe.apply(gray)
 
 
+def _pearson(a: np.ndarray, b: np.ndarray) -> float:
+    a = a.astype(np.float64) - a.mean()
+    b = b.astype(np.float64) - b.mean()
+    denom = np.sqrt(np.sum(a * a) * np.sum(b * b))
+    return float(np.sum(a * b) / denom) if denom > 1e-9 else float("nan")
+
+
+def appearance_score(
+        img_template: np.ndarray,
+        img_test: np.ndarray,
+        H: np.ndarray,
+        width: int = APPEARANCE_WIDTH,
+        border: int = 3,
+        test_mask: "np.ndarray | None" = None) -> dict:
+    """Do muc khop diem anh giua template va anh test sau khi nan bang H.
+
+    Tinh o do phan giai thap (chieu rong `width`) cho nhanh (~vai ms):
+      - ncc      : he so tuong quan Pearson cua cuong do sang (1 = khop hoan toan)
+      - ncc_grad : Pearson cua do lon gradient (Sobel) - nhay hon voi lech vai px
+      - mae      : sai khac tuyet doi trung binh (muc xam 0-255)
+      - valid_fraction : ty le dien tich template duoc anh test phu (sau khi nan)
+    Chi tinh tren vung hop le: bo phan den do warp, co them `border` px.
+    `test_mask` (tuy chon, cung kich thuoc anh test, >0 = pixel that): dung khi
+    anh test tu no da co vung den (vd thi nghiem nan lech gia lap).
+    Khong can nhan GT nen chay duoc tren du lieu that.
+    """
+    gray_t = _to_gray(img_template, "Template")
+    gray_s = _to_gray(img_test, "Test")
+    h_t, w_t = gray_t.shape[:2]
+    h_s, w_s = gray_s.shape[:2]
+
+    scale_t = min(1.0, width / float(w_t))
+    scale_s = min(1.0, width / float(w_s))
+    size_t = (max(1, int(round(w_t * scale_t))), max(1, int(round(h_t * scale_t))))
+    size_s = (max(1, int(round(w_s * scale_s))), max(1, int(round(h_s * scale_s))))
+    small_t = cv2.resize(gray_t, size_t, interpolation=cv2.INTER_AREA)
+    small_s = cv2.resize(gray_s, size_s, interpolation=cv2.INTER_AREA)
+
+    # H o do phan giai thap: S_t * H * S_s^-1
+    S_t = np.diag([scale_t, scale_t, 1.0])
+    S_s_inv = np.diag([1.0 / scale_s, 1.0 / scale_s, 1.0])
+    H_small = S_t @ H @ S_s_inv
+    warped = cv2.warpPerspective(small_s, H_small, size_t, flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    src_valid = np.full(small_s.shape[:2], 255, np.uint8)
+    if test_mask is not None:
+        src_valid = cv2.resize(test_mask, size_s, interpolation=cv2.INTER_NEAREST)
+        src_valid = np.where(src_valid > 0, 255, 0).astype(np.uint8)
+    valid = cv2.warpPerspective(src_valid, H_small, size_t,
+                                flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+                                borderValue=0)
+    if border > 0:
+        valid = cv2.erode(valid, np.ones((2 * border + 1, 2 * border + 1), np.uint8))
+    if APPEARANCE_BLUR and APPEARANCE_BLUR > 1:
+        k = (APPEARANCE_BLUR, APPEARANCE_BLUR)
+        small_t = cv2.GaussianBlur(small_t, k, 0)
+        warped = cv2.GaussianBlur(warped, k, 0)
+    mask = valid > 0
+    result = {"ncc": float("nan"), "ncc_grad": float("nan"), "mae": float("nan"),
+              "valid_fraction": float(np.count_nonzero(mask)) / mask.size}
+    if np.count_nonzero(mask) < 500:
+        return result
+
+    a = small_t[mask]
+    b = warped[mask]
+    result["ncc"] = _pearson(a, b)
+    result["mae"] = float(np.mean(np.abs(a.astype(np.int16) - b.astype(np.int16))))
+
+    def grad_mag(img):
+        gx = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
+        return cv2.magnitude(gx, gy)
+
+    inner = cv2.erode(valid, np.ones((3, 3), np.uint8)) > 0  # bo vien gradient gia
+    if np.count_nonzero(inner) >= 500:
+        result["ncc_grad"] = _pearson(grad_mag(small_t)[inner], grad_mag(warped)[inner])
+    return result
+
+
 def align_images_with_stats(
         img_template: np.ndarray,
         img_test: np.ndarray,
         max_features: int = DEFAULT_MAX_FEATURES,
         keep_percentage: float = 0.8,
-        detector: str = DEFAULT_DETECTOR):
+        detector: str = DEFAULT_DETECTOR,
+        min_ncc: "float | None" = DEFAULT_MIN_NCC,
+        test_mask: "np.ndarray | None" = None):
     """Can chinh anh test theo anh template.
 
     Tra ve (img_test_aligned, stats). `stats` gom so keypoint, so cap khop,
@@ -141,6 +244,9 @@ def align_images_with_stats(
     Neu that bai -> raise AlignmentError (co thuoc tinh .stats).
 
     `detector` chon bo do dac trung: "ORB" (mac dinh), "SIFT" hoac "AKAZE".
+    `min_ncc`  nguong NCC kiem chung homography bang diem anh (P0.1);
+               None = bo qua kiem tra (van tinh va ghi NCC vao stats).
+    `test_mask` vung pixel that cua anh test (chi dung cho NCC), xem appearance_score.
     """
     name = _normalize_detector(detector)
     stats = {
@@ -157,15 +263,23 @@ def align_images_with_stats(
         "time_match_ms": 0.0,
         "time_homography_ms": 0.0,
         "time_warp_ms": 0.0,
+        "time_verify_ms": 0.0,
         "time_total_ms": 0.0,
+        "ncc": float("nan"),
+        "ncc_grad": float("nan"),
+        "mae": float("nan"),
+        "valid_fraction": float("nan"),
+        "failed_check": "",
         "H": None,
+        "H_candidate": None,
         "inlier_pts_test": None,
         "inlier_pts_template": None,
         "error": "",
     }
 
-    def fail(message: str):
+    def fail(message: str, check: str = "geometry"):
         stats["error"] = message
+        stats["failed_check"] = check
         raise AlignmentError(message, stats)
 
     # Kiem tra input
@@ -269,7 +383,21 @@ def align_images_with_stats(
     if not (0.5 < det < 2.0):
         fail(f"Homography gay bien dang bat thuong (det = {det:.3f}).")
 
-    # 4. Nan anh test ve he toa do template
+    # 4. Kiem chung bang diem anh (P0.1): cac kiem tra tren chi dua vao tap
+    # inlier nen khong bat duoc H "sai nhung tu nhat quan" (vd khop nham
+    # sang mot hoa van lap lai). NCC so sanh truc tiep noi dung anh.
+    stats["H_candidate"] = H
+    t_verify = time.perf_counter()
+    stats.update(appearance_score(gray_template, gray_test, H, test_mask=test_mask))
+    stats["time_verify_ms"] = (time.perf_counter() - t_verify) * 1000.0
+    if min_ncc is not None:
+        ncc = stats["ncc"]
+        if not np.isfinite(ncc) or ncc < min_ncc:
+            stats["time_total_ms"] = (time.perf_counter() - t_start) * 1000.0
+            fail(f"Kiem chung diem anh that bai: NCC {ncc:.3f} < {min_ncc:.3f}.",
+                 check="appearance")
+
+    # 5. Nan anh test ve he toa do template
     h, w = gray_template.shape[:2]
     img_test_aligned = cv2.warpPerspective(
         img_test, H, (w, h),
@@ -278,7 +406,7 @@ def align_images_with_stats(
         borderValue=0,
     )
     t_end = time.perf_counter()
-    stats["time_warp_ms"] = (t_end - t_homo) * 1000.0
+    stats["time_warp_ms"] = (t_end - t_homo) * 1000.0 - stats["time_verify_ms"]
     stats["time_total_ms"] = (t_end - t_start) * 1000.0
     stats["H"] = H
     stats["success"] = True
@@ -291,12 +419,87 @@ def align_images(
         img_test: np.ndarray,
         max_features: int = DEFAULT_MAX_FEATURES,
         keep_percentage: float = 0.8,
-        detector: str = DEFAULT_DETECTOR) -> np.ndarray:
+        detector: str = DEFAULT_DETECTOR,
+        min_ncc: "float | None" = DEFAULT_MIN_NCC) -> np.ndarray:
     """Giu nguyen giao dien cu: chi tra ve anh da can chinh."""
     aligned, _ = align_images_with_stats(
-        img_template, img_test, max_features, keep_percentage, detector
+        img_template, img_test, max_features, keep_percentage, detector, min_ncc
     )
     return aligned
+
+
+def align_images_robust(
+        img_template: np.ndarray,
+        img_test: np.ndarray,
+        max_features: int = DEFAULT_MAX_FEATURES,
+        keep_percentage: float = 0.8,
+        detector: str = DEFAULT_DETECTOR,
+        fallbacks=DEFAULT_FALLBACKS,
+        min_ncc: "float | None" = DEFAULT_MIN_NCC,
+        test_mask: "np.ndarray | None" = None):
+    """Can chinh co phuong an du phong (dung trong main.py).
+
+    1. Thu detector chinh (mac dinh ORB). Vuot moi kiem tra -> dung luon.
+    2. Neu that bai, thu lan luot `fallbacks` (mac dinh SIFT: cham hon ~6 lan
+       nhung chinh xac hon ~8 lan, chi chay cho so it cap bi tu choi).
+    3. Neu khong lan nao vuot kiem tra NCC nhung co H hop le ve hinh hoc,
+       chon H co NCC cao nhat va danh dau stats["verified"] = False
+       (van tot hon dung anh chua can chinh).
+    4. Khong co H nao -> raise AlignmentError.
+
+    stats bo sung: verified, fallback_used, attempts (danh sach ket qua tung lan),
+    time_all_attempts_ms.
+    """
+    attempts = [(detector, max_features)]
+    for item in (fallbacks or ()):
+        det, mf = (item, max_features) if isinstance(item, str) else item
+        if (det.upper(), mf) not in [(d.upper(), m) for d, m in attempts]:
+            attempts.append((det, mf))
+
+    log = []
+    best = None          # (ncc, stats) cua lan chi hong kiem tra NCC
+    last_stats = None
+    total_ms = 0.0
+    for det, mf in attempts:
+        if not is_detector_available(det):
+            log.append(f"{det.upper()}:khong co trong OpenCV")
+            continue
+        try:
+            aligned, stats = align_images_with_stats(
+                img_template, img_test, mf, keep_percentage, det, min_ncc, test_mask)
+            total_ms += stats["time_total_ms"]
+            log.append(f"{det.upper()}/{mf}:ok (NCC {stats['ncc']:.3f})")
+            stats.update(verified=True, attempts=log,
+                         fallback_used=(det.upper(), mf) != (detector.upper(), max_features),
+                         time_all_attempts_ms=total_ms)
+            return aligned, stats
+        except AlignmentError as exc:
+            stats = exc.stats
+            last_stats = stats
+            total_ms += stats.get("time_total_ms", 0.0)
+            log.append(f"{det.upper()}/{mf}:{exc}")
+            if stats.get("failed_check") == "appearance" and stats.get("H_candidate") is not None:
+                ncc = stats.get("ncc", float("nan"))
+                score = ncc if np.isfinite(ncc) else -1.0
+                if best is None or score > best[0]:
+                    best = (score, stats)
+
+    if best is not None:
+        stats = dict(best[1])
+        H = stats["H_candidate"]
+        h, w = img_template.shape[:2]
+        aligned = cv2.warpPerspective(img_test, H, (w, h), flags=cv2.INTER_LINEAR,
+                                      borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        stats.update(success=True, H=H, verified=False, attempts=log,
+                     fallback_used=stats["detector"] != detector.upper(),
+                     time_all_attempts_ms=total_ms,
+                     error="Khong lan nao vuot kiem tra NCC; dung H co NCC cao nhat.")
+        return aligned, stats
+
+    if last_stats is None:
+        last_stats = {"success": False, "error": "Khong co detector nao chay duoc."}
+    last_stats.update(attempts=log, verified=False, time_all_attempts_ms=total_ms)
+    raise AlignmentError("Can chinh that bai o moi phuong an: " + " | ".join(log), last_stats)
 
 
 def gaussian_blur(gray: np.ndarray, ksize: int = 3) -> np.ndarray:
@@ -353,8 +556,21 @@ def difference_map(
     return diff, blur_ms
 
 
-def binarize_difference(diff: np.ndarray, border: int = 8) -> np.ndarray:
-    """Otsu + nguong san + bo vien + morphology opening."""
+def binarize_difference(
+        diff: np.ndarray,
+        border: int = 8,
+        threshold_floor: int = DEFAULT_THRESHOLD_FLOOR,
+        open_ksize: int = DEFAULT_OPEN_KSIZE,
+        hysteresis_low: "float | None" = DEFAULT_HYSTERESIS_LOW) -> np.ndarray:
+    """Otsu + nguong san + bo vien + morphology opening.
+
+    threshold_floor : nguong = max(Otsu, threshold_floor)
+    open_ksize      : kernel opening khu nhieu; <= 1 thi bo opening
+    hysteresis_low  : None = nguong don. Neu la so trong (0, 1), giu them cac
+                      pixel >= hysteresis_low * nguong MIEN LA noi lien voi
+                      mot pixel vuot nguong (nhu Canny). Giup giu tron net loi
+                      manh / tuong phan yeu ma khong them dom nhieu rieng le.
+    """
     if diff is None or diff.size == 0:
         raise ValueError("Ban do vi sai rong.")
 
@@ -366,11 +582,21 @@ def binarize_difference(diff: np.ndarray, border: int = 8) -> np.ndarray:
     otsu_val, _ = cv2.threshold(
         diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
     )
-    threshold_value = max(int(otsu_val), 30)
+    threshold_value = max(int(otsu_val), int(threshold_floor))
 
     _, diff_binary = cv2.threshold(
         diff, threshold_value, 255, cv2.THRESH_BINARY
     )
+
+    if hysteresis_low is not None and 0 < hysteresis_low < 1:
+        low_value = max(1, int(threshold_value * hysteresis_low))
+        _, weak = cv2.threshold(diff, low_value, 255, cv2.THRESH_BINARY)
+        n_labels, labels = cv2.connectedComponents(weak, connectivity=8)
+        if n_labels > 1:
+            keep = np.zeros(n_labels, bool)
+            keep[np.unique(labels[diff_binary > 0])] = True
+            keep[0] = False
+            diff_binary = np.where(keep[labels], 255, 0).astype(np.uint8)
 
     # Bo vien anh
     diff_binary[:border, :] = 0
@@ -379,20 +605,25 @@ def binarize_difference(diff: np.ndarray, border: int = 8) -> np.ndarray:
     diff_binary[:, -border:] = 0
 
     # Khu nhieu bang morphology opening
-    clean_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    diff_cleaned = cv2.morphologyEx(diff_binary, cv2.MORPH_OPEN, clean_kernel)
-
-    return diff_cleaned
+    if open_ksize and open_ksize > 1:
+        clean_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (open_ksize, open_ksize))
+        return cv2.morphologyEx(diff_binary, cv2.MORPH_OPEN, clean_kernel)
+    return diff_binary
 
 
 def detect_difference(
     img_template: np.ndarray,
     img_test_aligned: np.ndarray,
     blur_ksize: int = 3,
+    threshold_floor: int = DEFAULT_THRESHOLD_FLOOR,
+    open_ksize: int = DEFAULT_OPEN_KSIZE,
+    hysteresis_low: "float | None" = DEFAULT_HYSTERESIS_LOW,
 ) -> np.ndarray:
     """Tru vi sai template voi anh test da can chinh, tra ve mask nhi phan.
 
     `blur_ksize` cho phep thi nghiem doi kich thuoc kernel Gaussian (mac dinh 3).
+    Cac tham so con lai chuyen thang cho `binarize_difference`.
     """
     diff, _ = difference_map(img_template, img_test_aligned, blur_ksize)
-    return binarize_difference(diff)
+    return binarize_difference(diff, threshold_floor=threshold_floor,
+                               open_ksize=open_ksize, hysteresis_low=hysteresis_low)
