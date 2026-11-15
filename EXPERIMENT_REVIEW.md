@@ -219,3 +219,26 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 4. **P0.2, P2.*** → hoàn thiện script, số liệu và repo.
 
 > Nguyên tắc khi tối ưu: mỗi thay đổi chỉ được chấp nhận nếu **không làm giảm precision** và được đo lại trên **cùng 693 cặp** với cùng điều kiện; mọi số liệu phải sinh từ script, không chép tay.
+
+---
+
+## 7. Trạng thái triển khai các điểm tối ưu (15/11/2026)
+
+> Code đã xong và đã chạy thử trên dữ liệu giả lập cùng cấu trúc PKU. **Các ngưỡng cuối cùng phải chốt bằng 693 cặp thật** theo lệnh ở cột "Việc còn lại". Các giá trị mặc định của pipeline **chưa đổi** trừ kiểm chứng NCC (P0.1).
+
+| Mục | Đã làm | Việc còn lại (chạy trên 693 cặp) |
+| :--- | :--- | :--- |
+| **P0.1** NCC | `module_preprocess.appearance_score()`: NCC cường độ + NCC gradient + MAE ở độ rộng 400 px, có mask vùng hợp lệ, làm mờ 3x3 sau khi thu nhỏ (~5 ms/cặp). `align_images_with_stats(min_ncc=0.97)` từ chối khi NCC thấp (`stats["failed_check"] = "appearance"`). `align_images_robust()`: ORB → SIFT dự phòng → nếu vẫn không đạt thì chọn H có NCC cao nhất (`verified=False`). `main.py` dùng bản robust (`--fallback`, `--min-ncc`, `--no-verify`). | `py -3.14 -u experiments/exp_alignment_check.py --output-dir experiments` → lấy ngưỡng đề xuất, sửa `DEFAULT_MIN_NCC` nếu khác 0.97. Kiểm tra 3 cặp ngoại lai bị chặn và SIFT sửa được. |
+| **P0.2** p95 | `exp_max_features.py` đề xuất theo **corner p95 ≤ 1 px**; in thêm c.max (cảnh báo), số cặp > 1 px, NCC, thời gian trung vị + p95, F1@IoU; ghi `max_features_summary.csv`. | Chạy lại lệnh ở mục 1 → script phải đề xuất 2000 (hoặc 3000). |
+| **P0.3** 3 cặp sót | `binarize_difference()` có tham số `threshold_floor`, `open_ksize`, `hysteresis_low` (mặc định = pipeline cũ, đã kiểm tra cho kết quả giống hệt). `exp_detection_params.py`: chẩn đoán từng lỗi bị sót mất ở bước **ngưỡng / opening / min_area**, lưu ảnh `experiments/inspect/`. | `py -3.14 experiments/exp_detection_params.py --pairs 01_spur_04 04_spurious_copper_05 01_mouse_bite_19 --inspect` |
+| **P1.1** Spur / Spurious_copper | `exp_detection_params.py` quét lưới floor × opening × hysteresis × min_area (48 cấu hình), recall theo lớp, đốm giả/ảnh, đánh dấu ĐẠT KPI; chỉ đề xuất cấu hình **không làm giảm precision** ở mọi điều kiện, hòa thì giữ cấu hình gần gốc nhất. | `py -3.14 -u experiments/exp_detection_params.py --output-dir experiments` → nếu đề xuất khác gốc, sửa các hằng `DEFAULT_*` trong `module_preprocess.py`. |
+| **P1.2** IoU | `evaluation.py` (dùng chung): ghép "chạm nhau tol 5" + ghép 1-1 theo IoU ≥ 0.3 / 0.5. F1@IoU có trong `exp_feature_matching`, `exp_max_features`, `exp_detection_params`. | Đưa cột `f1_iou30`, `f1_iou50` vào bảng báo cáo. |
+| **P2.2** Điều kiện đo | `summary.csv` của `exp_feature_matching` và `max_features_summary.csv` có các cột `cond_*` (warp, max_features, NCC, tiêu chí ghép bbox). | — |
+| **P2.3** Lệnh full 693 | Có trong docstring của cả 5 script thực nghiệm. | — |
+| P2.1, P2.4 | Không làm được bằng code (cần máy rảnh / commit kết quả). | Đo lại thời gian khi máy rảnh; commit CSV + biểu đồ mới. |
+
+### 7.1. Phát hiện mới cần đưa vào báo cáo
+
+1. **Phát hiện lỗi rất nhạy với nội suy ảnh.** Bản đầu của `exp_max_features.py` đo phát hiện trên ảnh đã nắn lệch rồi căn lại (bị nội suy 2 lần) và cho recall chỉ **~0.23** trên 10 cặp thật, so với ~0.96 khi đo trên ảnh gốc. Ảnh PKU gốc trùng khít template nên không lộ vấn đề này, nhưng ảnh camera thật **luôn** phải nắn (warp) → recall thực tế có thể thấp hơn nhiều so với 0.96. `exp_detection_params.py` vì vậy đo ở **2 điều kiện**: `clean` (ảnh gốc) và `resample` (ảnh đã nội suy); tham số mới phải tốt ở cả hai.
+2. **F1@IoU0.5 gần 0** trên dữ liệu thử: bbox của pipeline chỉ khoanh lõi vi sai, nhỏ hơn nhãn GT nhiều. Khi báo cáo F1 phải ghi rõ tiêu chí ghép bbox; muốn đạt F1@IoU cao cần thêm bước gộp đốm / nới bbox (chưa làm).
+3. **Ngưỡng NCC 0.97** được chọn từ đo độ nhạy: căn chuẩn 0.995, lệch 1 px 0.995, 2 px 0.984, 3 px 0.966, 4 px 0.941, 7 px 0.857 (ảnh thử). Tức là chấp nhận lệch ≤ 2 px (nằm trong dung sai ±2 px của bước trừ vi sai), từ chối từ ~3 px.
