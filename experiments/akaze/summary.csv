@@ -1,0 +1,2 @@
+﻿kind,detector,pairs,success_rate,kp_test,matches,inliers,inlier_ratio,reprojection_error,corner_error_mean,corner_error_median,time_detect_ms,time_match_ms,time_align_ms,time_pipeline_ms,recall,precision,f1
+original,AKAZE,693,1.0,2000.0,1514.0794,1173.6898,0.9687,0.0956,0.1729,0.0491,2038.8736,16.5965,2065.8942,2131.3894,0.9672,0.9833,0.9752

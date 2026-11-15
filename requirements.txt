@@ -4,5 +4,7 @@ matplotlib
 scikit-learn
 
 # AKAZE (tùy chọn, chỉ cần cho experiments/exp_feature_matching.py):
-#   pip install opencv-contrib-python   # thay thế opencv-python, KHÔNG cài song song
-# OpenCV 5.x không còn cv2.AKAZE_create trong bản opencv-python thường.
+#   py -3.14 -m venv .venv
+#   .venv\Scripts\python -m pip install opencv-contrib-python==5.0.0.93 numpy matplotlib
+#   .venv\Scripts\python -c "import cv2; print(hasattr(cv2.xfeatures2d, 'AKAZE_create'))"
+# OpenCV 5.x: AKAZE nằm ở cv2.xfeatures2d (chỉ có trong bản contrib, KHÔNG cài song song với opencv-python).

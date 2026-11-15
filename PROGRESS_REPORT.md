@@ -24,15 +24,15 @@ Thực nghiệm trên toàn bộ **693 cặp ảnh màu** của PKU-Market-PCB, 
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **ORB** | **232.7** | 2000 | 1402 | 94.7 | 0.661 | 0.280 / 0.934 | 0.9611 | 0.9839 | 0.9723 |
 | **SIFT** | 1485.1 | 1980 | 1458 | 98.2 | **0.085** | **0.035 / 0.089** | **0.9672** | 0.9833 | **0.9752** |
-| **AKAZE** | *chưa đo* | – | – | – | – | – | – | – | – |
+| **AKAZE** | 2065.9 | 2000 | 1514 | 96.9 | 0.096 | 0.049 / 0.099 | **0.9672** | 0.9833 | **0.9752** |
 
 > **Nhận xét & Kết luận:**  
-> - ORB nhanh gấp **6.4 lần** SIFT (233 ms so với 1485 ms) nhờ bộ mô tả nhị phân (Binary Descriptor) và khoảng cách Hamming, phù hợp yêu cầu thời gian thực của camera công nghiệp.  
-> - SIFT chính xác hơn: sai số góc trung vị **0.035 px** so với **0.280 px** của ORB; số cặp có sai số góc > 1 px là 3/693 (SIFT) so với 30/693 (ORB).  
-> - Chất lượng phát hiện lỗi cuối cùng gần như tương đương (F1 0.9752 so với 0.9723) vì bước trừ vi sai có dung sai vị trí ±2 px.  
-> - Cả hai đều có chung 3 cặp ngoại lai (cao nhất 47 px, cùng cặp `06_spur_08`) — lỗi này không phụ thuộc bộ dò mà do kiểm tra homography quá lỏng, cần siết ngưỡng ở bước sau.  
-> - **Chọn ORB làm mặc định** vì tốc độ gấp 6.4 lần trong khi F1 chỉ thấp hơn 0.003; SIFT để dành cho chế độ "độ chính xác cao".  
-> - AKAZE chưa chạy được vì `opencv-python` hiện tại không kèm module `xfeatures2d`; cần cài `opencv-contrib-python` để bổ sung. Script tự bỏ qua detector thiếu và cảnh báo.
+> - ORB nhanh gấp **6.4 lần** SIFT và **8.9 lần** AKAZE nhờ bộ mô tả nhị phân (Binary Descriptor) và khoảng cách Hamming, phù hợp yêu cầu thời gian thực của camera công nghiệp.  
+> - SIFT và AKAZE chính xác hơn: sai số góc trung vị **0.035 px** (SIFT) và **0.049 px** (AKAZE) so với **0.280 px** của ORB; số cặp có sai số góc > 1 px là 3–4/693 so với 30/693 (ORB).  
+> - Chất lượng phát hiện lỗi cuối cùng gần như tương đương (F1 0.9752 / 0.9752 / 0.9723) vì bước trừ vi sai có dung sai vị trí ±2 px.  
+> - Cả ba đều có chung 3 cặp ngoại lai (cao nhất 47 px, cùng cặp `06_spur_08`) — lỗi này không phụ thuộc bộ dò mà do kiểm tra homography quá lỏng, cần siết ngưỡng ở bước sau.  
+> - **Chọn ORB làm mặc định** vì tốc độ nhanh nhất trong khi F1 chỉ thấp hơn 0.003; SIFT/AKAZE để dành cho chế độ "độ chính xác cao". AKAZE không có lợi thế tốc độ so với SIFT trên ảnh độ phân giải cao.  
+> - Cấu hình AKAZE: `max_features` chỉ là **cắt bớt sau khi detect** (AKAZE không có tham số `nfeatures`). AKAZE cần `opencv-contrib-python`; kết quả lưu riêng tại `experiments/akaze/`.
 
 ---
 

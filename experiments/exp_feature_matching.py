@@ -31,6 +31,12 @@ Cách chạy (từ thư mục gốc project):
     py -3.14 experiments/exp_feature_matching.py --rotation
     py -3.14 experiments/exp_feature_matching.py --detectors ORB SIFT
 
+Chạy full 693 cặp:
+    py -3.14 -u experiments/exp_feature_matching.py --output-dir experiments
+
+AKAZE cần opencv-contrib-python (OpenCV 5.x đặt AKAZE ở cv2.xfeatures2d).
+Nếu thiếu, script tự bỏ qua detector đó và in cảnh báo; xem requirements.txt.
+
 Đầu ra (mặc định experiments/results/detector_comparison/):
     per_pair.csv, summary.csv, comparison_chart.png,
     vis/<pair>_<DETECTOR>_matches.jpg, vis/<pair>_<DETECTOR>_checkerboard.jpg

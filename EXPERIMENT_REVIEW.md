@@ -24,6 +24,10 @@
 $env:PYTHONIOENCODING='utf-8'
 py -3.14 -u experiments/exp_feature_matching.py --output-dir experiments
 
+# 1b. AKAZE (cần opencv-contrib-python trong venv .venv, ~23 phút)
+.\.venv\Scripts\python.exe -u experiments\exp_feature_matching.py `
+    --detectors AKAZE --visualize 0 --output-dir experiments\akaze
+
 # 2. Khảo sát max_features (6 mức, 1 lần/cặp, ~40 phút)
 py -3.14 -u experiments/exp_max_features.py `
     --values 500 1000 2000 3000 5000 10000 --repeats 1 --output-dir experiments
@@ -37,6 +41,7 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 | Script | File sinh ra |
 | :--- | :--- |
 | `exp_feature_matching.py` | `experiments/summary.csv`, `experiments/per_pair.csv`, `experiments/comparison_chart.png`, `experiments/vis/*.jpg` |
+| `exp_feature_matching.py --detectors AKAZE` | `experiments/akaze/summary.csv`, `experiments/akaze/per_pair.csv` (chạy trong venv `.venv` vì cần `opencv-contrib-python`) |
 | `exp_max_features.py` | `experiments/max_features_results.csv`, `experiments/charts/max_features_study.png` |
 | `exp_blur_kernel.py` | `experiments/blur_kernel_results.csv`, `experiments/charts/blur_comparison.png`, `experiments/charts/blur_visual.png` |
 
@@ -52,11 +57,12 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **ORB** | **232.7** | 2000 | 1402 | 94.7 | 0.661 | 0.280 | 0.934 | 30 | 0.9611 | 0.9839 | 0.9723 |
 | **SIFT** | 1485.1 | 1980 | 1458 | 98.2 | **0.085** | **0.035** | **0.089** | 3 | **0.9672** | 0.9833 | **0.9752** |
-| AKAZE | *chưa đo* | – | – | – | – | – | – | – | – | – | – |
+| **AKAZE** | 2065.9 | 2000 | 1514 | 96.9 | 0.096 | 0.049 | 0.099 | 4 | **0.9672** | 0.9833 | **0.9752** |
 
-- ORB nhanh gấp **6.4 lần** SIFT; F1 chỉ thấp hơn 0.003 → giữ ORB làm mặc định.
-- SIFT đáng dùng khi cần căn chỉnh chính xác (corner p95 0.089 px so với 0.934 px).
-- AKAZE chưa chạy được: `opencv-python` hiện tại không có `xfeatures2d`, cần `opencv-contrib-python`.
+- ORB nhanh gấp **6.4 lần** SIFT và **8.9 lần** AKAZE; F1 chỉ thấp hơn 0.003 → giữ ORB làm mặc định.
+- SIFT và AKAZE chính xác hơn hẳn về hình học (corner p95 0.089 / 0.099 px so với 0.934 px), nhưng không đổi được F1 cuối.
+- AKAZE chậm hơn cả SIFT trên ảnh độ phân giải cao (2066 ms so với 1485 ms) → không có lợi thế tốc độ.
+- AKAZE cần `opencv-contrib-python` (OpenCV 5.x đặt ở `cv2.xfeatures2d`); `max_features` với AKAZE chỉ là cắt bớt sau khi detect. Kết quả lưu riêng tại `experiments/akaze/`.
 
 ### 2.2. Ảnh hưởng của `max_features` (693 cặp)
 
@@ -105,7 +111,7 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 
 1. **Chất lượng đã bão hòa ở F1 ≈ 0.97.** Tăng `max_features` gấp 5 lần chỉ thêm 0.003 F1; đổi kernel blur không đổi F1. Nút thắt không còn nằm ở căn chỉnh/tiền xử lý nữa.
 2. **Reprojection error là chỉ số dễ gây hiểu nhầm.** Có cặp căn chỉnh lệch tới 47 px nhưng reprojection vẫn 0.64 px, vì RANSAC chỉ tối ưu nội bộ tập inlier. **Corner error mới là chỉ số đúng** khi đánh giá căn chỉnh.
-3. **ORB là lựa chọn đúng cho thời gian thực**, SIFT là phương án dự phòng khi cần độ chính xác hình học.
+3. **ORB là lựa chọn đúng cho thời gian thực**, SIFT/AKAZE là phương án dự phòng khi cần độ chính xác hình học (AKAZE không nhanh hơn SIFT trên ảnh lớn).
 4. **Lỗi còn lại mang tính hệ thống**, không phải ngẫu nhiên:
    - 3 cặp căn chỉnh sai nặng (47 / 28 / 7 px) ở **mọi** mức `max_features` → lỗi kiểm tra homography, không phải thiếu feature.
    - 7 cặp bỏ sót toàn bộ GT; trong đó 3 cặp căn chỉnh rất tốt (corner 0.20–0.46 px) → lỗi ở ngưỡng/morphology.
@@ -173,12 +179,10 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 - Báo cáo cả 2 để thấy độ nhạy của chỉ số.
 - **Chỉ tiêu:** có bảng F1@IoU0.3 và F1@IoU0.5 trên 693 cặp.
 
-#### P1.3. Hoàn tất AKAZE
-
-- Cài `opencv-contrib-python` đúng phiên bản với `opencv-python`, kiểm tra `cv2.AKAZE_create`.
-- Chạy `exp_feature_matching.py --detectors AKAZE` để đủ 3 dòng trong báo cáo.
-- **Chỉ tiêu:** AKAZE có đủ thời gian / inliers / corner / F1 như ORB và SIFT.
-- Nếu OpenCV 5.0 chưa có contrib: ghi rõ lý do trong báo cáo thay vì để trống.
+#### P1.3. AKAZE — đã hoàn tất
+- Đã cài `opencv-contrib-python==5.0.0.93` trong venv `.venv` (không đụng môi trường chính) và chạy full 693 cặp.
+- Kết quả: F1 0.9752, recall 0.9672, corner median 0.049 px, thời gian 2066 ms — chính xác ngang SIFT nhưng chậm hơn.
+- Hướng tiếp theo (nếu cần): chỉ dùng AKAZE khi ưu tiên bất biến tỉ lệ và chấp nhận >2 s/cặp; không dùng cho pipeline thời gian thực.
 
 ### P2 — Kỹ thuật & báo cáo
 
@@ -213,6 +217,5 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 2. **P0.3 + P1.1** → chỉnh ngưỡng/morphology, đo lại recall theo lớp.
 3. **P1.2** → thêm IoU vào bộ đo, cập nhật bảng báo cáo.
 4. **P0.2, P2.*** → hoàn thiện script, số liệu và repo.
-5. **P1.3 AKAZE** → chạy nếu môi trường cho phép.
 
 > Nguyên tắc khi tối ưu: mỗi thay đổi chỉ được chấp nhận nếu **không làm giảm precision** và được đo lại trên **cùng 693 cặp** với cùng điều kiện; mọi số liệu phải sinh từ script, không chép tay.
