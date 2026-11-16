@@ -70,7 +70,8 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
                  open_ksize: int = DEFAULT_OPEN_KSIZE,
                  hysteresis_low=DEFAULT_HYSTERESIS_LOW,
                  min_area: int = DEFAULT_MIN_AREA,
-                 extra_out: "dict | None" = None) -> tuple:
+                 extra_out: "dict | None" = None,
+                 save_outputs: bool = True) -> tuple:
     """
     Chạy toàn bộ pipeline trên 1 cặp ảnh.
 
@@ -84,6 +85,8 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     `extra_out` dict tuỳ chọn: nếu truyền vào, hàm điền thêm các khoá
     template/aligned/gray/mask/valid/boxes để GUI hoặc bước phân loại dùng lại,
     khỏi phải chạy lại pipeline.
+    `save_outputs=False`: không ghi `crops/` và `results/` (dùng khi chạy
+    dataset/benchmark số lượng lớn).
 
     Trả về: (boxes, crop_paths, output_path, thời_gian_giây, align_stats)
     """
@@ -128,17 +131,20 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     boxes = extract_bounding_boxes(diff_mask, min_area=min_area)
 
     # 5. Cắt và lưu các ảnh con đốm lỗi (mỗi ảnh 1 thư mục riêng)
-    crop_dir = os.path.join('crops', str(img_id))
-    crop_paths = crop_defect_patches(
-        img_test_aligned, boxes, output_dir=crop_dir, padding=5
-    )
+    crop_paths = []
+    output_path = None
+    if save_outputs:
+        crop_dir = os.path.join('crops', str(img_id))
+        crop_paths = crop_defect_patches(
+            img_test_aligned, boxes, output_dir=crop_dir, padding=5
+        )
 
-    # 6. Đóng khung đỏ và lưu ảnh kết quả (tên file theo mã ảnh)
-    results_dir = 'results'
-    os.makedirs(results_dir, exist_ok=True)
-    img_result = draw_results(img_test_aligned, boxes)
-    output_path = os.path.join(results_dir, f'result_{img_id}.jpg')
-    cv2.imwrite(output_path, img_result)
+        # 6. Đóng khung đỏ và lưu ảnh kết quả (tên file theo mã ảnh)
+        results_dir = 'results'
+        os.makedirs(results_dir, exist_ok=True)
+        img_result = draw_results(img_test_aligned, boxes)
+        output_path = os.path.join(results_dir, f'result_{img_id}.jpg')
+        cv2.imwrite(output_path, img_result)
 
     elapsed = time.time() - start
     if extra_out is not None:

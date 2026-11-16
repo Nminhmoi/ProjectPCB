@@ -132,6 +132,18 @@ def extract_features(gray: np.ndarray, mask: np.ndarray,
     return np.vstack([_features_one(gray, mask, box) for box in boxes])
 
 
+def _native_loader(kind: str):
+    return {"svm": cv2.ml.SVM_load, "rtrees": cv2.ml.RTrees_load}.get(kind)
+
+
+def _native_kind(estimator) -> Optional[str]:
+    if isinstance(estimator, cv2.ml.SVM):
+        return "svm"
+    if isinstance(estimator, cv2.ml.RTrees):
+        return "rtrees"
+    return None
+
+
 def load_model(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
     """Nạp model pickle; trả `None` nếu chưa có file."""
     model_path = Path(path) if path is not None else DEFAULT_MODEL_PATH
@@ -139,19 +151,36 @@ def load_model(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
         return None
     with model_path.open("rb") as fh:
         model = pickle.load(fh)
-    if not isinstance(model, dict) or "model" not in model:
+    if not isinstance(model, dict) or ("model" not in model and "model_file" not in model):
         raise ValueError(
             f"{model_path} không đúng định dạng model (thiếu khoá 'model')."
         )
+
+    kind = model.get("model_type")
+    loader = _native_loader(kind) if kind else None
+    if model.get("model") is None and loader is not None:
+        native = model_path.parent / str(model["model_file"])
+        if not native.is_file():
+            raise FileNotFoundError(f"Thiếu file model OpenCV: {native}")
+        model["model"] = loader(str(native))
     return model
 
 
 def save_model(model: Dict[str, Any], path: Optional[Path] = None) -> Path:
-    """Lưu model ra pickle; trả đường dẫn đã ghi."""
+    """Lưu model: scaler/classes vào pickle, model OpenCV ghi file .xml riêng."""
     model_path = Path(path) if path is not None else DEFAULT_MODEL_PATH
     model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = dict(model)
+    estimator = payload.get("model")
+    kind = _native_kind(estimator)
+    if kind is not None:
+        native = model_path.with_name(f"{model_path.stem}.{kind}.xml")
+        estimator.save(str(native))
+        payload.update(model=None, model_type=kind, model_file=native.name)
+
     with model_path.open("wb") as fh:
-        pickle.dump(model, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
     return model_path
 
 

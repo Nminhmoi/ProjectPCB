@@ -86,8 +86,8 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 **Minh**
 - [x] #1 interface + stub `classify()`
 - [x] #3 `extract_features()`
-- [ ] #4 `build_classifier_dataset.py`
-- [ ] #5 `exp_classify.py`
+- [x] #4 `build_classifier_dataset.py`
+- [x] #5 `exp_classify.py`
 - [ ] #7 `verify_defaults.py`
 - [ ] #11 `tests/test_contracts.py`
 
