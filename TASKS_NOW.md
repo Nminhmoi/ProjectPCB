@@ -92,7 +92,7 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 - [ ] #11 `tests/test_contracts.py`
 
 **Hinh**
-- [x] #2 `module_visualize.py`
+- [ ] #2 `module_visualize.py`
 - [ ] #6 `gui_app.py`
 - [ ] #10 `evaluate_metrics.py`
 
