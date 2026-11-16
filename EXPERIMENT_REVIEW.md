@@ -110,16 +110,16 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 ## 3. Nhận xét tổng hợp
 
 1. **Chất lượng đã bão hòa ở F1 ≈ 0.97.** Tăng `max_features` gấp 5 lần chỉ thêm 0.003 F1; đổi kernel blur không đổi F1. Nút thắt không còn nằm ở căn chỉnh/tiền xử lý nữa.
-2. **Reprojection error là chỉ số dễ gây hiểu nhầm.** Có cặp căn chỉnh lệch tới 47 px nhưng reprojection vẫn 0.64 px, vì RANSAC chỉ tối ưu nội bộ tập inlier. **Corner error mới là chỉ số đúng** khi đánh giá căn chỉnh.
+2. **Reprojection error là chỉ số dễ gây hiểu nhầm.** Có cặp corner lớn tới 47 px nhưng reprojection vẫn 0.64 px, vì RANSAC chỉ tối ưu nội bộ tập inlier. **Corner error mới là chỉ số đúng** — nhưng phải bù dịch chuyển có sẵn giữa template và test (`H_pre @ H_true_inv`); 3 cặp 47/28/7 px thực chất là **dịch chuyển có sẵn** của dữ liệu, không phải căn chỉnh sai (xem CODE_REVIEW.md mục 2.2).
 3. **ORB là lựa chọn đúng cho thời gian thực**, SIFT/AKAZE là phương án dự phòng khi cần độ chính xác hình học (AKAZE không nhanh hơn SIFT trên ảnh lớn).
 4. **Lỗi còn lại mang tính hệ thống**, không phải ngẫu nhiên:
-   - 3 cặp căn chỉnh sai nặng (47 / 28 / 7 px) ở **mọi** mức `max_features` → lỗi kiểm tra homography, không phải thiếu feature.
+   - 3 cặp từng bị coi là "căn chỉnh sai nặng" thực ra căn chỉnh đúng (corner 0.2–0.5 px sau khi bù dịch chuyển); không có cặp nào lệch > 5 px trên 693 cặp.
    - 7 cặp bỏ sót toàn bộ GT; trong đó 3 cặp căn chỉnh rất tốt (corner 0.20–0.46 px) → lỗi ở ngưỡng/morphology.
    - 2 lớp Spur, Spurious_copper có recall thấp nhất (~0.92).
 5. **F1 giữa 3 script chênh 0.003–0.008 do khác điều kiện đo**, không phải mâu thuẫn:
    - `exp_blur_kernel`: căn chỉnh thật, **không** nắn lệch giả lập → F1 0.975.
    - `exp_feature_matching`: có nắn lệch, `max_features = 2000` → F1 0.972.
-   - `exp_max_features`: có nắn lệch, tính cả 3 cặp ngoại lai → F1 0.967.
+   - `exp_max_features`: có nắn lệch, phát hiện đo trên ảnh đã căn lại → F1 0.967.
    → Khi trích dẫn báo cáo phải ghi rõ điều kiện đo.
 6. **Chỉ số F1 hiện tại dùng ghép bbox "chạm nhau, tol 5 px"** — khá dễ dãi. Muốn thuyết phục hơn nên báo cáo thêm F1 theo IoU.
 
@@ -131,8 +131,12 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 
 #### P0.1. Kiểm chứng homography bằng điểm ảnh (NCC)
 
-- **Vấn đề:** 3 cặp căn chỉnh sai nặng vẫn lọt qua mọi kiểm tra hiện tại (inliers ≥ 12, inlier ratio ≥ 0.15, reprojection < 3 px, det ∈ (0.5, 2)).
-- **Bằng chứng (kiểm tra 6 cặp điển hình, warp giả lập như script):**
+- **Vấn đề ban đầu:** 3 cặp có corner error lớn (7–47 px) vẫn lọt qua mọi kiểm tra hình học.
+- **Đính chính (CODE_REVIEW.md mục 2.2):** 3 cặp đó **không phải căn chỉnh sai** — H của ORB khớp nội dung
+  (NCC 0.996–0.999), chúng chỉ có dịch chuyển 7/28/47 px **có sẵn** giữa template và test. Thước đo corner
+  cũ (so với `H_true_inv`) mới là cái sai. Sau khi sửa (mốc `H_pre @ H_true_inv`), cả 3 cặp còn 0.2–0.5 px.
+  Vì vậy NCC **không thể** là thứ chặn 3 cặp này.
+- **Bằng chứng cũ (NCC toàn ảnh, chưa mask):**
 
   | Cặp | Corner (px) | NCC | MAE |
   | :--- | :---: | :---: | :---: |
@@ -143,19 +147,21 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
   | 01_spur_04 | 0.41 | 1.000 | 0.36 |
   | 01_missing_hole_01 | 0.20 | 0.998 | 0.34 |
 
-- **Hướng làm:**
+- **Hướng làm (đã triển khai):**
   1. Sau khi warp, resize ảnh xám template và ảnh aligned về cùng chiều rộng ~400 px.
   2. Chỉ tính trên **vùng hợp lệ** (che phần đen do warp bằng mask đã erode).
   3. Tính hệ số tương quan Pearson (NCC) và MAE.
   4. Thêm `stats["appearance_score"]` vào `align_images_with_stats`; từ chối căn chỉnh nếu NCC dưới ngưỡng.
-- **Lưu ý:** bảng trên tính NCC trên toàn ảnh (chưa che biên), nên khi triển khai phải đo lại phân bố NCC **có mask** rồi mới chốt ngưỡng.
-- **Chỉ tiêu:** toàn bộ cặp có corner ≤ 1 px phải có NCC ≥ ngưỡng; 3 cặp ngoại lai bị từ chối. Cần đo phân bố NCC trên 693 cặp trước khi chốt ngưỡng (dự kiến 0.95).
-- **Chi phí:** thấp (~5 ms/cặp), không cần GT, chạy được cả trên dữ liệu thật.
+- **Kết quả đo trên 693 cặp (điều kiện thật):** NCC min **0.9950**, p1 0.9967, median 0.9998; **0 cặp bị từ chối**
+  ở ngưỡng 0.97, 0 lần dùng SIFT dự phòng.
+- **Chốt lại (sau review):** NCC chỉ là **chốt chặn thảm hoạ**, không phải ngưỡng tinh chỉnh →
+  `DEFAULT_MIN_NCC = 0.90`, `DEFAULT_FALLBACKS = ()` (bật SIFT bằng `--fallback SIFT` khi cần).
+- **Chi phí thật:** **~38 ms/cặp** (~14% thời gian căn chỉnh), không phải ~5 ms.
 
 #### P0.2. Sửa tiêu chí đề xuất của `exp_max_features.py`
 
-- **Vấn đề:** script xét `corner max ≤ 1 px`, nhưng 3 cặp ngoại lai làm max luôn ~47 px ở mọi mức → không mức nào được đề xuất.
-- **Hướng làm:** dùng **corner p95 ≤ 1 px** để đề xuất, vẫn in `max` như cảnh báo; thêm cột `time_p95_ms`.
+- **Vấn đề:** script xét `corner max ≤ 1 px`, nên chỉ một cặp lệch (dù do dữ liệu) là không mức nào được đề xuất.
+- **Hướng làm:** dùng **corner p95 ≤ 1 px** để đề xuất, vẫn in `max` như cảnh báo; thêm cột `time_p95_ms`. Corner đã được đo lại với mốc `H_pre @ H_true_inv` nên không còn cặp 47 px giả tạo.
 - **Chỉ tiêu:** script đề xuất được 2000 (hoặc 3000 nếu p95 của 2000 vượt 1 px).
 
 #### P0.3. Tìm nguyên nhân 3 cặp bỏ sót dù căn chỉnh tốt
@@ -205,7 +211,7 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 | Recall Spur / Spurious_copper | 0.928 / 0.922 | ≥ 0.96 |
 | Báo động giả | 0.07 blob/ảnh | ≤ 0.05 blob/ảnh |
 | Corner p95 (ORB) | 0.934 px | ≤ 0.85 px (đạt được ở mức 3000–5000 nếu cần) |
-| Số cặp căn chỉnh sai > 5 px | 3/693 | 0/693 (bị NCC chặn) |
+| Số cặp lệch > 5 px sau khi bù dịch chuyển có sẵn | 0/693 | 0/693 (NCC 0.90 chỉ là chốt chặn thảm hoạ) |
 | Thời gian căn chỉnh ORB 2000 (median, `exp_max_features`) | 107.4 ms | ≤ 150 ms |
 | Thời gian toàn pipeline (median, `exp_feature_matching`) | 378.8 ms | ≤ 450 ms |
 
@@ -213,7 +219,7 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 
 ## 6. Thứ tự thực hiện đề xuất
 
-1. **P0.1 NCC** → chạy lại 693 cặp, chốt ngưỡng, xác nhận 3 cặp ngoại lai bị chặn.
+1. **P0.1 NCC** → đã chốt: `DEFAULT_MIN_NCC = 0.90` (chốt chặn thảm hoạ), bỏ SIFT dự phòng khỏi mặc định.
 2. **P0.3 + P1.1** → chỉnh ngưỡng/morphology, đo lại recall theo lớp.
 3. **P1.2** → thêm IoU vào bộ đo, cập nhật bảng báo cáo.
 4. **P0.2, P2.*** → hoàn thiện script, số liệu và repo.
@@ -224,11 +230,13 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 
 ## 7. Trạng thái triển khai các điểm tối ưu (15/11/2026)
 
-> Code đã xong và đã chạy thử trên dữ liệu giả lập cùng cấu trúc PKU. **Các ngưỡng cuối cùng phải chốt bằng 693 cặp thật** theo lệnh ở cột "Việc còn lại". Các giá trị mặc định của pipeline **chưa đổi** trừ kiểm chứng NCC (P0.1).
+> Code đã xong và đã chạy thử trên dữ liệu giả lập cùng cấu trúc PKU. Ba mặc định đã đổi theo kết quả đo:
+> kiểm chứng NCC (P0.1: 0.97 → 0.90, bỏ SIFT dự phòng) và mask vùng hợp lệ trước khi tính Otsu.
+> Hai mặc định nhị phân hóa (floor 30 / open 3 / area 20) **chưa đổi** — chờ chạy full 693 cặp (mục 6.3 CODE_REVIEW.md).
 
 | Mục | Đã làm | Việc còn lại (chạy trên 693 cặp) |
 | :--- | :--- | :--- |
-| **P0.1** NCC | `module_preprocess.appearance_score()`: NCC cường độ + NCC gradient + MAE ở độ rộng 400 px, có mask vùng hợp lệ, làm mờ 3x3 sau khi thu nhỏ (~5 ms/cặp). `align_images_with_stats(min_ncc=0.97)` từ chối khi NCC thấp (`stats["failed_check"] = "appearance"`). `align_images_robust()`: ORB → SIFT dự phòng → nếu vẫn không đạt thì chọn H có NCC cao nhất (`verified=False`). `main.py` dùng bản robust (`--fallback`, `--min-ncc`, `--no-verify`). | `py -3.14 -u experiments/exp_alignment_check.py --output-dir experiments` → lấy ngưỡng đề xuất, sửa `DEFAULT_MIN_NCC` nếu khác 0.97. Kiểm tra 3 cặp ngoại lai bị chặn và SIFT sửa được. |
+| **P0.1** NCC | `module_preprocess.appearance_score()`: NCC cường độ + NCC gradient + MAE ở độ rộng 400 px, có mask vùng hợp lệ, làm mờ 3x3 sau khi thu nhỏ (~38 ms/cặp, đo trên 693 cặp). `align_images_with_stats(min_ncc=0.90)` từ chối khi NCC thấp (`stats["failed_check"] = "appearance"`). `align_images_robust()`: ORB; **mặc định không có dự phòng**, bật SIFT bằng `--fallback SIFT`; nếu không đạt NCC thì chọn H có NCC cao nhất (`verified=False`). `main.py` dùng bản robust (`--fallback`, `--min-ncc`, `--no-verify`). | Đã đo 693 cặp: NCC min 0.9950, 0 cặp bị từ chối → ngưỡng 0.90 là chốt chặn thảm hoạ, không cần chốt lại. Chỉ cần đưa số liệu vào báo cáo. |
 | **P0.2** p95 | `exp_max_features.py` đề xuất theo **corner p95 ≤ 1 px**; in thêm c.max (cảnh báo), số cặp > 1 px, NCC, thời gian trung vị + p95, F1@IoU; ghi `max_features_summary.csv`. | Chạy lại lệnh ở mục 1 → script phải đề xuất 2000 (hoặc 3000). |
 | **P0.3** 3 cặp sót | `binarize_difference()` có tham số `threshold_floor`, `open_ksize`, `hysteresis_low` (mặc định = pipeline cũ, đã kiểm tra cho kết quả giống hệt). `exp_detection_params.py`: chẩn đoán từng lỗi bị sót mất ở bước **ngưỡng / opening / min_area**, lưu ảnh `experiments/inspect/`. | `py -3.14 experiments/exp_detection_params.py --pairs 01_spur_04 04_spurious_copper_05 01_mouse_bite_19 --inspect` |
 | **P1.1** Spur / Spurious_copper | `exp_detection_params.py` quét lưới floor × opening × hysteresis × min_area (48 cấu hình), recall theo lớp, đốm giả/ảnh, đánh dấu ĐẠT KPI; chỉ đề xuất cấu hình **không làm giảm precision** ở mọi điều kiện, hòa thì giữ cấu hình gần gốc nhất. | `py -3.14 -u experiments/exp_detection_params.py --output-dir experiments` → nếu đề xuất khác gốc, sửa các hằng `DEFAULT_*` trong `module_preprocess.py`. |
@@ -239,6 +247,6 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 
 ### 7.1. Phát hiện mới cần đưa vào báo cáo
 
-1. **Phát hiện lỗi rất nhạy với nội suy ảnh.** Bản đầu của `exp_max_features.py` đo phát hiện trên ảnh đã nắn lệch rồi căn lại (bị nội suy 2 lần) và cho recall chỉ **~0.23** trên 10 cặp thật, so với ~0.96 khi đo trên ảnh gốc. Ảnh PKU gốc trùng khít template nên không lộ vấn đề này, nhưng ảnh camera thật **luôn** phải nắn (warp) → recall thực tế có thể thấp hơn nhiều so với 0.96. `exp_detection_params.py` vì vậy đo ở **2 điều kiện**: `clean` (ảnh gốc) và `resample` (ảnh đã nội suy); tham số mới phải tốt ở cả hai.
+1. **Recall tụt trên ảnh warp là do dải biên đen, không phải nội suy.** Bản đầu của `exp_max_features.py` đo phát hiện trên ảnh đã nắn lệch rồi căn lại và cho recall chỉ **~0.23**. Kiểm chứng lại: Otsu tính trên toàn ảnh bị dải biên đen (rộng bằng độ dịch) chi phối, đẩy ngưỡng từ 2–31 lên 68–85 và xoá sạch lỗi mảnh. Khi chỉ lấy mẫu Otsu trong **vùng hợp lệ** (48 cặp, 8 cặp/lớp), recall 0.375 → **0.875**, precision 0.071 → 0.985, F1 0.119 → 0.927; ảnh gốc không đổi (0/48 cặp thay đổi kết quả). `exp_detection_params.py` vì vậy đo ở **2 điều kiện**: `clean` (ảnh gốc) và `resample` (ảnh đã nội suy), cả hai đều dùng mask trước khi tính ngưỡng.
 2. **F1@IoU0.5 gần 0** trên dữ liệu thử: bbox của pipeline chỉ khoanh lõi vi sai, nhỏ hơn nhãn GT nhiều. Khi báo cáo F1 phải ghi rõ tiêu chí ghép bbox; muốn đạt F1@IoU cao cần thêm bước gộp đốm / nới bbox (chưa làm).
-3. **Ngưỡng NCC 0.97** được chọn từ đo độ nhạy: căn chuẩn 0.995, lệch 1 px 0.995, 2 px 0.984, 3 px 0.966, 4 px 0.941, 7 px 0.857 (ảnh thử). Tức là chấp nhận lệch ≤ 2 px (nằm trong dung sai ±2 px của bước trừ vi sai), từ chối từ ~3 px.
+3. **Ngưỡng NCC 0.90 là chốt chặn thảm hoạ, không phải ngưỡng tinh chỉnh.** Trên 693 cặp PKU, NCC min 0.9950 (p1 0.9967, median 0.9998) nên ngưỡng 0.97 không chặn được cặp nào và cũng không nên dùng để phân loại "căn chỉnh tốt/xấu" — 3 cặp từng bị coi là ngoại lai thực ra có NCC 0.996–0.999. Ngưỡng 0.90 giữ biên an toàn ~0.09 dưới mức thấp nhất đo được, chỉ để bắt trường hợp H khớp nham sang hoạ văn lặp lại. Đo độ nhạy trên ảnh thử: lệch 4 px 0.941, 7 px 0.857 — dưới 0.90 là lệch ≥ ~6 px, đã ngoài dung sai ±2 px của bước trừ vi sai.

@@ -23,17 +23,21 @@ DETECTOR_NAME = DEFAULT_DETECTOR
 
 # --- P0.1: kiem chung homography bang diem anh (NCC) ----------------------
 # Sau khi tinh H, so khop template voi anh test da nan o do phan giai thap.
-# Can chinh dung tren PKU cho NCC ~0.998; cac cap can lech 7-47 px cho
-# NCC 0.80-0.95 (EXPERIMENT_REVIEW.md, muc 4 P0.1). Nguong chot bang
-# experiments/exp_alignment_check.py tren 693 cap. None = tat kiem tra.
-DEFAULT_MIN_NCC = 0.97
-APPEARANCE_WIDTH = 400          # chieu rong (px) anh thu nho de tinh NCC (~6 ms)
+# Tren 693 cap PKU (dieu kien that) NCC min 0.9950, median 0.9998 -> dat nguong
+# cao (0.97) la vo dung; nguong nay chi de chan THAM HOA (H khop nham sang hoa
+# van lap lai, hoac canh lech han). 0.90 = bien an toan ~0.09 duoi muc thap nhat
+# do duoc. None = tat kiem tra.
+DEFAULT_MIN_NCC = 0.90
+APPEARANCE_WIDTH = 400          # chieu rong (px) anh thu nho de tinh NCC
 APPEARANCE_BLUR = 3             # Gaussian sau khi thu nho: can bang do sac net giua
                                 # template (khong noi suy) va anh test (da noi suy).
                                 # Do tren anh mau: khop dung 0.995, lech 2 px 0.984,
                                 # lech 4 px 0.941, lech 7 px 0.857.
-# Thu lan luot khi detector chinh khong vuot kiem tra (align_images_robust).
-DEFAULT_FALLBACKS = (("SIFT", DEFAULT_MAX_FEATURES),)
+# Chi phi kiem chung do tren 693 cap: ~38 ms/cap (~14% thoi gian can chinh).
+# Mac dinh KHONG dung detector du phong: tren PKU chua cap nao bi tu choi, con
+# SIFT ton them ~1.5 s/cap. Bat lai khi can: --fallback SIFT (hoac truyen vao
+# `align_images_robust(fallbacks=...)`).
+DEFAULT_FALLBACKS = ()
 
 # --- Tham so nhi phan hoa ban do vi sai (P0.3 / P1.1) ---------------------
 # Gia tri mac dinh = pipeline da chay 693 cap (F1 0.972). Doi bang
@@ -166,7 +170,8 @@ def appearance_score(
         test_mask: "np.ndarray | None" = None) -> dict:
     """Do muc khop diem anh giua template va anh test sau khi nan bang H.
 
-    Tinh o do phan giai thap (chieu rong `width`) cho nhanh (~vai ms):
+    Tinh o do phan giai thap (chieu rong `width`) de giam chi phi; do tren 693
+    cap PKU la ~38 ms/cap. Cac chi so:
       - ncc      : he so tuong quan Pearson cua cuong do sang (1 = khop hoan toan)
       - ncc_grad : Pearson cua do lon gradient (Sobel) - nhay hon voi lech vai px
       - mae      : sai khac tuyet doi trung binh (muc xam 0-255)
@@ -389,7 +394,8 @@ def align_images_with_stats(
     stats["H_candidate"] = H
     t_verify = time.perf_counter()
     stats.update(appearance_score(gray_template, gray_test, H, test_mask=test_mask))
-    stats["time_verify_ms"] = (time.perf_counter() - t_verify) * 1000.0
+    t_verify_end = time.perf_counter()
+    stats["time_verify_ms"] = (t_verify_end - t_verify) * 1000.0
     if min_ncc is not None:
         ncc = stats["ncc"]
         if not np.isfinite(ncc) or ncc < min_ncc:
@@ -406,7 +412,9 @@ def align_images_with_stats(
         borderValue=0,
     )
     t_end = time.perf_counter()
-    stats["time_warp_ms"] = (t_end - t_homo) * 1000.0 - stats["time_verify_ms"]
+    # Chi tinh rieng buoc warp: (t_end - t_verify_end). Cong thuc cu
+    # (t_end - t_homo) - time_verify_ms gop ca kiem tra hinh hoc + warp nen co the am.
+    stats["time_warp_ms"] = max(0.0, (t_end - t_verify_end) * 1000.0)
     stats["time_total_ms"] = (t_end - t_start) * 1000.0
     stats["H"] = H
     stats["success"] = True
@@ -423,7 +431,11 @@ def align_images(
         min_ncc: "float | None" = DEFAULT_MIN_NCC) -> np.ndarray:
     """Giu nguyen giao dien cu: chi tra ve anh da can chinh."""
     aligned, _ = align_images_with_stats(
-        img_template, img_test, max_features, keep_percentage, detector, min_ncc
+        img_template, img_test,
+        max_features=max_features,
+        keep_percentage=keep_percentage,
+        detector=detector,
+        min_ncc=min_ncc,
     )
     return aligned
 
@@ -440,12 +452,16 @@ def align_images_robust(
     """Can chinh co phuong an du phong (dung trong main.py).
 
     1. Thu detector chinh (mac dinh ORB). Vuot moi kiem tra -> dung luon.
-    2. Neu that bai, thu lan luot `fallbacks` (mac dinh SIFT: cham hon ~6 lan
-       nhung chinh xac hon ~8 lan, chi chay cho so it cap bi tu choi).
+    2. Neu that bai, thu lan luot `fallbacks`. Mac dinh KHONG co du phong; bat
+       bang `--fallback SIFT` (cham hon ~6 lan nhung chinh xac hon, chi chay cho
+       so it cap bi tu choi).
     3. Neu khong lan nao vuot kiem tra NCC nhung co H hop le ve hinh hoc,
        chon H co NCC cao nhat va danh dau stats["verified"] = False
        (van tot hon dung anh chua can chinh).
     4. Khong co H nao -> raise AlignmentError.
+
+    NCC la chot chan tham hoa (mac dinh 0.90), khong dung de tinh chinh: tren
+    693 cap PKU NCC min 0.9950. Xem CODE_REVIEW.md muc 2.1.
 
     stats bo sung: verified, fallback_used, attempts (danh sach ket qua tung lan),
     time_all_attempts_ms.
@@ -466,7 +482,13 @@ def align_images_robust(
             continue
         try:
             aligned, stats = align_images_with_stats(
-                img_template, img_test, mf, keep_percentage, det, min_ncc, test_mask)
+                img_template, img_test,
+                max_features=mf,
+                keep_percentage=keep_percentage,
+                detector=det,
+                min_ncc=min_ncc,
+                test_mask=test_mask,
+            )
             total_ms += stats["time_total_ms"]
             log.append(f"{det.upper()}/{mf}:ok (NCC {stats['ncc']:.3f})")
             stats.update(verified=True, attempts=log,

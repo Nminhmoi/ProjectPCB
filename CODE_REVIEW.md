@@ -129,16 +129,16 @@ Cần chạy `exp_detection_params` trên 693 cặp để chốt lại, đồng 
 | # | Vị trí | Vấn đề | Mức |
 | :---: | :--- | :--- | :---: |
 | 1 | `main.py:142-157`, `module_preprocess.difference_map` | **Không mask vùng biên sau warp** (không truyền `test_mask`, `binarize_difference` không có tham số `valid`). Trên ảnh camera thật sẽ dính đúng lỗi 2.3: recall ~0.2 + 1 blob dải biên khổng lồ — **ĐÃ SỬA** (xem mục 6) | ~~Cao~~ |
-| 2 | `module_preprocess.py:29,36` | `DEFAULT_MIN_NCC = 0.97` bật mặc định khi chưa chốt; trên PKU min NCC 0.9950 nên vô dụng, trên ảnh thật dễ từ chối oan; kèm `DEFAULT_FALLBACKS` SIFT làm cặp bị từ chối tốn thêm ~1.5 s | Cao |
-| 3 | `module_preprocess.py:409` | `time_warp_ms = (t_end - t_homo)*1000 - time_verify_ms` gộp cả kiểm tra hình học + warp, có thể **âm**; làm hỏng phân rã thời gian khi báo cáo | TB |
-| 4 | `module_preprocess.py:425-427` | `align_images` truyền `min_ncc` **positional** thứ 6 → dễ vỡ im lặng nếu đổi chữ ký; nên dùng keyword | TB |
-| 5 | `exp_alignment_check.py:171` | `final = max(cands)[1]` — hòa điểm thì chọn corner **lớn hơn** (xấu hơn); phải chọn corner nhỏ hơn | Thấp |
-| 6 | `exp_alignment_check.py:190-194` | `suggest()` loại cặp fail hình học khỏi nhóm "bad" (nhưng `simulate` lại tính) → có thể báo "tách được" sai | Thấp |
-| 7 | `exp_max_features.py:495` | Help của `--max-corner-px` vẫn ghi "sai số góc xấu nhất" trong khi code dùng **p95** | Thấp |
-| 8 | `exp_detection_params.py:40` | Ước lượng "20–40 phút" quá lạc quan: 693 × 2 × 49 cấu hình = **67.9k lần** Otsu + morphology + contours → thực tế ~1.5–3 h; nên ghi rõ, gợi ý `--per-class` trước | TB |
+| 2 | `module_preprocess.py:29,36` | `DEFAULT_MIN_NCC = 0.97` bật mặc định khi chưa chốt; trên PKU min NCC 0.9950 nên vô dụng, trên ảnh thật dễ từ chối oan; kèm `DEFAULT_FALLBACKS` SIFT làm cặp bị từ chối tốn thêm ~1.5 s — **ĐÃ SỬA** (0.90, bỏ SIFT dự phòng; xem mục 6.4) | ~~Cao~~ |
+| 3 | `module_preprocess.py:409` | `time_warp_ms = (t_end - t_homo)*1000 - time_verify_ms` gộp cả kiểm tra hình học + warp, có thể **âm**; làm hỏng phân rã thời gian khi báo cáo — **ĐÃ SỬA** (đo trực tiếp giữa `t_verify_end` và `t_end`) | ~~TB~~ |
+| 4 | `module_preprocess.py:425-427` | `align_images` truyền `min_ncc` **positional** thứ 6 → dễ vỡ im lặng nếu đổi chữ ký; nên dùng keyword — **ĐÃ SỬA** (cả `align_images` và `align_images_robust`) | ~~TB~~ |
+| 5 | `exp_alignment_check.py:171` | `final = max(cands)[1]` — hòa điểm thì chọn corner **lớn hơn** (xấu hơn); phải chọn corner nhỏ hơn — **ĐÃ SỬA** (`max(key=(score, -corner))`) | ~~Thấp~~ |
+| 6 | `exp_alignment_check.py:190-194` | `suggest()` loại cặp fail hình học khỏi nhóm "bad" (nhưng `simulate` lại tính) → có thể báo "tách được" sai — **ĐÃ SỬA** (đếm riêng `bad_geom_fail` + in rõ) | ~~Thấp~~ |
+| 7 | `exp_max_features.py:495` | Help của `--max-corner-px` vẫn ghi "sai số góc xấu nhất" trong khi code dùng **p95** — **ĐÃ SỬA** (ghi "corner p95 tối đa") | ~~Thấp~~ |
+| 8 | `exp_detection_params.py:40` | Ước lượng "20–40 phút" quá lạc quan: 693 × 2 × 49 cấu hình = **67.9k lần** Otsu + morphology + contours; nên ghi rõ, gợi ý `--per-class` trước — **ĐÃ SỬA** (ghi ~1.5–3 h + gợi ý) | ~~TB~~ |
 | 9 | `exp_detection_params.py:136-141` | Điều kiện `clean` không mask biên; mask `valid` erode 31 px cứng; `diagnose_missed` sẽ báo "ngưỡng" quá nhiều vì dính lỗi 2.3 — **ĐÃ SỬA** (xem mục 6.3) | ~~TB~~ |
-| 10 | `exp_feature_matching.py:166` | `match_boxes` thành **dead code** (đã chuyển sang `evaluation`); `read_labels` vẫn trùng lặp ở 2 script | Thấp |
-| 11 | `.gitignore` | Chưa ignore `experiments/inspect/`, `experiments/charts/detection_params.png`, `experiments/alignment_check*.csv` | Thấp |
+| 10 | `exp_feature_matching.py:166` | `match_boxes` thành **dead code** (đã chuyển sang `evaluation`); `read_labels` vẫn trùng lặp ở 2 script — **ĐÃ SỬA** (xóa `_touch`/`match_boxes`/`read_labels` cục bộ ở 2 script, import từ `evaluation`) | ~~Thấp~~ |
+| 11 | `.gitignore` | Chưa ignore `experiments/inspect/`, `experiments/charts/detection_params.png`, `experiments/alignment_check*.csv` — **ĐÃ SỬA** | ~~Thấp~~ |
 
 ---
 
@@ -160,8 +160,8 @@ Cần chạy `exp_detection_params` trên 693 cặp để chốt lại, đồng 
    Kết quả: recall trên ảnh warp 0.375 → 0.875, precision không đổi (mục 6.1).
 2. **[Đã xong]** **Viết lại thước đo corner error:** mốc thành `H_pre @ H_true_inv`
    (`H_pre` = H nội dung của cặp) thay vì loại 3 cặp khỏi thống kê (mục 6.2).
-3. **Hạ P0.1 xuống "chốt chặn thảm hoạ":** NCC 0.90–0.92 (hoặc tắt mặc định), bỏ SIFT fallback khỏi
-   mặc định; giữ `appearance_score` vì cài đặt đúng và hữu ích cho ảnh thật.
+3. **[Đã xong]** **Hạ P0.1 xuống "chốt chặn thảm hoạ":** `DEFAULT_MIN_NCC = 0.90`, `DEFAULT_FALLBACKS = ()`
+   (bật SIFT bằng `--fallback SIFT`); giữ `appearance_score` (mục 6.4).
 4. Chạy `exp_detection_params` trên 693 cặp **sau khi sửa (1)** để chốt `DEFAULT_*`
    (dự kiến open 2, min_area 10, floor ~20) — bắt buộc kiểm tra precision không giảm.
 5. Sửa các mục 3–11 và rút gọn `main.py` (6 cờ CLI mới chưa chốt giá trị).
@@ -240,9 +240,64 @@ Hệ quả tài liệu: mục 3.2 / 3.4 / 4 P0.1 / §7.1 #1 của `EXPERIMENT_RE
 Chạy thử 3 cặp trọng điểm (24 cấu hình): chẩn đoán cấu hình gốc giờ báo `opening: 5, ngưỡng: 3`
 thay vì dồn hết vào "ngưỡng"; cấu hình `floor20_open1_area10` cho recall 1.00 trên cả clean và resample.
 
-### 6.4. Việc tiếp theo (chưa làm)
+### 6.4. Việc #3 — hạ P0.1 + sửa phân rã thời gian + gọi hàm bằng keyword: **ĐÃ SỬA**
 
-- Việc #3–#5 ở mục 5 (hạ P0.1, chốt `DEFAULT_*` trên 693 cặp, sửa các mục 3–11).
-- Chạy `exp_detection_params.py` full 693 cặp sau khi đã sửa để chốt `DEFAULT_*` (bắt buộc kiểm tra precision).
-- Viết lại mục 3.2 / 3.4 / 4 P0.1 / §7.1 #1 của `EXPERIMENT_REVIEW.md` theo kết luận mới.
+| File | Nội dung |
+| :--- | :--- |
+| `module_preprocess.py` | `DEFAULT_MIN_NCC = 0.90` (chốt chặn thảm hoạ); `DEFAULT_FALLBACKS = ()` (không dùng SIFT mặc định); sửa comment sai "~6 ms" → ~38 ms và bỏ mô tả sai "3 cặp lệch cho NCC 0.80–0.95" |
+| `module_preprocess.align_images_with_stats()` | `time_warp_ms` đo trực tiếp `t_end - t_verify_end` và kẹp `max(0, ...)`, không còn gộp kiểm tra hình học vào warp (trước đây có thể âm) |
+| `module_preprocess.align_images()` | Truyền `min_ncc` và các tham số bằng **keyword** |
+| `module_preprocess.align_images_robust()` | Truyền `min_ncc`/`test_mask` bằng keyword; cập nhật docstring (mặc định không dự phòng) |
+| `main.py` | Help `--min-ncc`/`--fallback` phản ánh đúng mặc định mới; docstring `process_pair` |
+| `EXPERIMENT_REVIEW.md` | Viết lại mục P0.1, KPI 214, mục 6 bước 1, bảng §7, §7.1 #1 và #3 theo kết luận đã kiểm chứng |
+
+Kiểm chứng (693 cặp + 1 cặp ngưỡng cao):
+
+| Kiểm tra | Kết quả |
+| :--- | :--- |
+| Quét 693 cặp | **693/693 chạy được**, NCC min 0.9950 · p1 0.9967 · median 0.9998, **0 cặp bị từ chối ở 0.90** |
+| `time_warp_ms` | min 5.0 · median 10.6 · max 51.4 ms, **không âm**; 0/693 cặp lệch tổng thành phần > 100 ms |
+| Thời gian căn chỉnh | median 243.5 ms/cặp (gồm NCC) |
+| `align_images()` | Chạy OK, trả `(1586, 3034, 3)` |
+| `--min-ncc 0.999` | Bị chặn đúng: `failed_check="appearance"`, NCC 0.9982, có `time_verify_ms` và `H_candidate` |
+| `align_images_robust(min_ncc=0.999)` | Trả `verified=False` với H tốt nhất (hành vi cũ, đã ghi trong docstring) |
+| CLI mặc định | `min_ncc=0.9`, `fallback=[]`, `no_verify=False` |
+| `py_compile` | OK (module + 4 script) |
+
+### 6.5. Việc #5 — các lỗi nhỏ còn lại: **ĐÃ SỬA**
+
+| # | File | Nội dung |
+| :---: | :--- | :--- |
+| 5 | `exp_alignment_check.py` | Hòa điểm khi chọn H "tốt nhất" giờ lấy corner **nhỏ hơn** (`max(key=(score, -corner))`) |
+| 6 | `exp_alignment_check.py` | `suggest()` đếm riêng `bad_geom_fail` (cặp hỏng hình học luôn bị chặn, không ràng buộc ngưỡng NCC) và in rõ trong bảng phân bố |
+| 7 | `exp_max_features.py` | Help `--max-corner-px` ghi đúng "corner p95 tối đa" |
+| 8 | `exp_detection_params.py` | Docstring ghi chi phí thật ~1.5–3 h (đã sửa ở lượt trước) |
+| 10 | `exp_feature_matching.py`, `exp_max_features.py` | Xóa `_touch`/`match_boxes` (dead code) + `read_labels` cục bộ; dùng `evaluation.read_labels` |
+| 11 | `.gitignore` | Ignore `experiments/inspect/`, `experiments/alignment_check*.csv`, `experiments/charts/detection_params.png` |
+
+### 6.6. Checkpoint `--resume` cho `exp_detection_params.py` (phục vụ việc #4): **ĐÃ THÊM**
+
+Chạy full 693 cặp mất 1.5–3 h, trước đây đứt giữa chừng là mất toàn bộ (kết quả chỉ ghi CSV ở cuối).
+Nay script ghi checkpoint sau mỗi `--checkpoint-every` cặp (mặc định 20) vào
+`<output-dir>/detection_params_state.pkl` và tự xóa khi chạy xong.
+
+- `--resume`: nạp lại `rows`/`diag`/danh sách cặp đã xong, chỉ chạy các cặp còn lại.
+- Checkpoint có **chữ ký** (data dir, conditions, danh sách cấu hình, tham số warp, danh sách cặp):
+  nếu khác lần chạy trước thì cảnh báo và chạy lại từ đầu, tránh trộn kết quả không tương thích.
+- Ghi nguyên tử (`.tmp` rồi `replace`) để không hỏng file nếu bị kill đúng lúc ghi.
+
+Kiểm chứng: chạy 4 cặp (48 cấu hình, `--checkpoint-every 1`), kill sau cặp 1 → resume → hoàn tất 4/4 cặp:
+
+| Kiểm tra | Kết quả |
+| :--- | :--- |
+| Thông báo resume | `đã xong 1/4 cặp, tiếp tục 3 cặp còn lại` |
+| CSV từng cặp | 4 cặp × 96 dòng (48 cấu hình × 2 điều kiện), không trùng/thiếu |
+| Checkpoint sau khi xong | Đã tự xóa |
+| Exit code | 0 |
+
+### 6.7. Việc tiếp theo (chưa làm)
+
+- **Chạy full 693 cặp với `--resume`** rồi chốt `DEFAULT_*` (việc #4). Lệnh:
+  `& .\.venv\Scripts\python.exe -u experiments\exp_detection_params.py --output-dir experiments --resume`
+- Bổ sung cột F1@IoU vào bảng báo cáo chính (`PROGRESS_REPORT.md`).
 

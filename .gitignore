@@ -25,6 +25,12 @@ venv/
 .ipynb_checkpoints/
 experiments/notebook_rgb2binary/
 
+# ===== Sinh ra khi chạy thực nghiệm =====
+experiments/inspect/
+experiments/alignment_check*.csv
+experiments/charts/detection_params.png
+experiments/detection_params_state.pkl
+
 # ===== IDE / OS =====
 .vscode/
 .idea/

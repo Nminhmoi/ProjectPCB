@@ -122,8 +122,9 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     pair_id, test_path, template_path, class_name, annotation_path, ...
 
     `detector` chọn bộ đặc trưng căn chỉnh: ORB / SIFT / AKAZE.
-    `fallbacks` detector dự phòng khi detector chính bị từ chối (P0.1),
-    `min_ncc` ngưỡng kiểm chứng căn chỉnh bằng điểm ảnh (None = tắt).
+    `fallbacks` detector dự phòng khi detector chính bị từ chối (mặc định: không có).
+    `min_ncc` ngưỡng NCC kiểm chứng căn chỉnh bằng điểm ảnh — chốt chặn thảm hoạ,
+    không dùng để tinh chỉnh (mặc định 0.90; None = tắt).
 
     Trả về: (boxes, crop_paths, output_path, thời_gian_giây, align_stats)
     """
@@ -222,13 +223,14 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=[d for d, _ in DEFAULT_FALLBACKS],
         help=f"Detector dự phòng khi căn chỉnh bị từ chối (mặc định: {default_fb}; "
-             "'none' = không dự phòng).",
+             "ví dụ 'SIFT' — chậm hơn ~6 lần, chỉ dùng khi cần; 'none' = không dự phòng).",
     )
     parser.add_argument(
         "--min-ncc",
         type=float,
         default=DEFAULT_MIN_NCC,
-        help=f"Ngưỡng NCC kiểm chứng căn chỉnh (mặc định: {DEFAULT_MIN_NCC}).",
+        help=f"Ngưỡng NCC kiểm chứng căn chỉnh — chốt chặn thảm hoạ, không phải "
+             f"ngưỡng tinh chỉnh (mặc định: {DEFAULT_MIN_NCC}; PKU thấp nhất 0.9950).",
     )
     parser.add_argument(
         "--no-verify",

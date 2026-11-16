@@ -5,8 +5,8 @@ P0.1 — Chốt ngưỡng kiểm chứng căn chỉnh bằng điểm ảnh (NCC)
     vẫn lọt qua mọi kiểm tra hình học (inliers, inlier ratio, reprojection, det),
     vì các kiểm tra đó chỉ nhìn tập inlier của chính RANSAC. module_preprocess
     giờ tính thêm NCC giữa template và ảnh test đã nắn (độ phân giải thấp, có
-    mask vùng hợp lệ) và từ chối khi NCC < DEFAULT_MIN_NCC; main.py khi đó thử
-    detector dự phòng (mặc định SIFT).
+    mask vùng hợp lệ) và từ chối khi NCC < DEFAULT_MIN_NCC; main.py khi đó có thể
+    thử detector dự phòng nếu được bật bằng --fallback (mặc định: không).
 
     Lưu ý (CODE_REVIEW.md mục 2.2): 3 cặp từng bị coi là "ngoại lai" (06_spur_08,
     04_spurious_copper_11, 06_spurious_copper_04) thực ra chỉ bị DỊCH CHUYỂN SẴN
@@ -182,7 +182,8 @@ def simulate(rows: List[Dict[str, object]], threshold: float, metric: str) -> Di
                 cands = [(score, corner)] if r.get("main_geom_ok") else []
                 if fb_ok:
                     cands.append((fb_score, _nan_to(r.get("fb_corner"), float("inf"))))
-                final = max(cands)[1] if cands else float("inf")
+                final = (max(cands, key=lambda c: (c[0], -c[1]))[1]
+                         if cands else float("inf"))
         final_bad += final > BAD_PX
     n = len(rows)
     return {
@@ -199,20 +200,26 @@ def simulate(rows: List[Dict[str, object]], threshold: float, metric: str) -> Di
 
 
 def suggest(rows: List[Dict[str, object]], metric: str) -> Dict[str, object]:
-    """Ngưỡng tách nhóm tốt / ngoại lai (nếu tách được)."""
+    """Ngưỡng tách nhóm tốt / ngoại lai (nếu tách được).
+
+    Cặp hỏng hình học (không có H) chắc chắn bị chặn ở bước kiểm tra hình học, nên
+    không thể ràng buộc ngưỡng NCC; chúng được đếm riêng ở `bad_geom_fail` để không
+    gây cảm giác "tách được" nhưng vẫn còn cặp lọt.
+    """
     good = [float(r[f"main_{metric}"]) for r in rows
             if r.get("main_geom_ok") and _nan_to(r.get("main_corner"), 1e9) <= GOOD_PX
             and not math.isnan(float(r[f"main_{metric}"]))]
     bad = [float(r[f"main_{metric}"]) for r in rows
            if r.get("main_geom_ok") and _nan_to(r.get("main_corner"), 0) > BAD_PX
            and not math.isnan(float(r[f"main_{metric}"]))]
+    bad_geom_fail = sum(1 for r in rows if not r.get("main_geom_ok"))
     out: Dict[str, object] = {
         "metric": metric,
         "good_min": min(good) if good else float("nan"),
         "good_p01": float(np.percentile(good, 1)) if good else float("nan"),
         "good_median": statistics.median(good) if good else float("nan"),
         "bad_max": max(bad) if bad else float("nan"),
-        "n_good": len(good), "n_bad": len(bad),
+        "n_good": len(good), "n_bad": len(bad), "bad_geom_fail": bad_geom_fail,
     }
     if good and bad and max(bad) < min(good):
         out["separable"] = True
@@ -368,9 +375,12 @@ def main(argv=None) -> None:
 
     print("\n=== PHÂN BỐ ===")
     for m, s in sugg.items():
+        extra = (f" | {s['bad_geom_fail']} cặp hỏng hình học (đã bị chặn, không cần NCC)"
+                 if s["bad_geom_fail"] else "")
         print(f"{m:<8}: cặp tốt (≤{GOOD_PX:g}px, n={s['n_good']}) min {s['good_min']:.4f}, "
               f"p1 {s['good_p01']:.4f}, median {s['good_median']:.4f} | "
-              f"ngoại lai (>{BAD_PX:g}px, n={s['n_bad']}) max {s['bad_max']:.4f}")
+              f"ngoại lai (>{BAD_PX:g}px, n={s['n_bad'] + s['bad_geom_fail']}) "
+              f"max {s['bad_max']:.4f}{extra}")
 
     print("\n=== MÔ PHỎNG align_images_robust THEO NGƯỠNG (chỉ số NCC) ===")
     header = (f"{'Ngưỡng':>7} |{'Tốt bị từ chối':>15} |{'Ngoại lai chặn/lọt':>19} |"

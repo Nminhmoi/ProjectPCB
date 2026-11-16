@@ -81,6 +81,7 @@ from evaluation import (  # noqa: E402
     detection_counts as count_detections,
     estimate_content_homography,
     prf_from_counts,
+    read_labels,
 )
 from module_detection import extract_bounding_boxes  # noqa: E402
 from module_preprocess import (  # noqa: E402
@@ -135,34 +136,6 @@ def random_homography(
     H[0, 2] += tx
     H[1, 2] += ty
     return H
-
-
-def read_labels(label_path: Optional[Path]) -> List[Tuple[int, int, int, int]]:
-    if not label_path or not Path(label_path).is_file():
-        return []
-    boxes = []
-    for line in Path(label_path).read_text(encoding="utf-8").splitlines():
-        parts = line.split()
-        if len(parts) >= 4:
-            x, y, w, h = (int(float(v)) for v in parts[:4])
-            boxes.append((x, y, w, h))
-    return boxes
-
-
-def _touch(a, b, tol: int) -> bool:
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
-    return not (
-        ax + aw + tol < bx or bx + bw + tol < ax
-        or ay + ah + tol < by or by + bh + tol < ay
-    )
-
-
-def match_boxes(pred, gt, tol: int = 5) -> Tuple[int, int]:
-    """Trả về (số GT được phát hiện, số bbox dự đoán đúng)."""
-    gt_hit = sum(1 for g in gt if any(_touch(p, g, tol) for p in pred))
-    pred_hit = sum(1 for p in pred if any(_touch(p, g, tol) for g in gt))
-    return gt_hit, pred_hit
 
 
 # ---------------------------------------------------------------------

@@ -75,6 +75,7 @@ from evaluation import (  # noqa: E402
     detection_counts as count_detections,
     estimate_content_homography,
     prf_from_counts,
+    read_labels,
 )
 from module_preprocess import (  # noqa: E402
     DEFAULT_MAX_FEATURES,
@@ -153,31 +154,6 @@ def random_homography(
     H[0, 2] += tx
     H[1, 2] += ty
     return H
-
-
-def read_labels(label_path: Optional[Path]) -> List[Tuple[int, int, int, int]]:
-    if not label_path or not Path(label_path).is_file():
-        return []
-    boxes = []
-    for line in Path(label_path).read_text(encoding="utf-8").splitlines():
-        parts = line.split()
-        if len(parts) >= 4:
-            boxes.append(tuple(int(float(v)) for v in parts[:4]))
-    return boxes
-
-
-def _touch(a, b, tol: int = 5) -> bool:
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
-    return not (ax + aw + tol < bx or bx + bw + tol < ax
-                or ay + ah + tol < by or by + bh + tol < ay)
-
-
-def match_boxes(pred, gt) -> Tuple[int, int]:
-    """Trả về (số GT được phát hiện, số bbox dự đoán đúng)."""
-    gt_hit = sum(1 for g in gt if any(_touch(p, g) for p in pred))
-    pred_hit = sum(1 for p in pred if any(_touch(p, g) for g in gt))
-    return gt_hit, pred_hit
 
 
 def detection_counts(
@@ -492,7 +468,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-corner-px", "--max-corner-p95", dest="max_corner_px",
                         type=float, default=1.0,
-                        help="Sai số góc xấu nhất chấp nhận được khi đề xuất (px, mặc định 1.0).")
+                        help="Corner p95 tối đa chấp nhận được khi đề xuất (px, mặc định 1.0).")
     parser.add_argument("--no-detection", action="store_true",
                         help="Bỏ phần đo recall/precision (chạy nhanh hơn).")
     parser.add_argument("--output-dir", type=Path, default=Path("experiments"),

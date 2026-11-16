@@ -41,6 +41,12 @@ Chạy full 693 cặp (~1.5–3 giờ; 693 × 2 điều kiện × 49 cấu hình
     morphology + contours). Nên chạy `--per-class` trước để chọn lưới tham số gọn hơn:
     py -3.14 -u experiments/exp_detection_params.py --output-dir experiments
 
+    Chạy dài có thể bị gián đoạn: script tự ghi checkpoint sau mỗi --checkpoint-every
+    cặp (mặc định 20) vào <output-dir>/detection_params_state.pkl. Nếu dừng giữa
+    chừng, chạy lại với --resume để tiếp tục (bỏ qua cặp đã xong):
+    py -3.14 -u experiments/exp_detection_params.py --output-dir experiments --resume
+    Checkpoint bị bỏ qua nếu cấu hình/điều kiện/danh sách cặp khác lần chạy trước.
+
     Ghi chú: cả hai điều kiện đều dùng mask "vùng hợp lệ" (pixel thật sau warp, erode
     VALID_ERODE px) đưa vào bước TÍNH NGƯỠNG, không phải mask sau khi nhị phân hóa.
     Lý do: dải biên đen do warp chi phối Otsu và xóa mất lỗi mảnh (CODE_REVIEW.md 2.3).
@@ -51,6 +57,7 @@ Chạy full 693 cặp (~1.5–3 giờ; 693 × 2 điều kiện × 49 cấu hình
     experiments/detection_missed_diagnosis.csv (mỗi lỗi bị sót ở cấu hình gốc)
     experiments/charts/detection_params.png
     experiments/inspect/<pair>_<điều kiện>.jpg (với --inspect)
+    experiments/detection_params_state.pkl (checkpoint khi đang chạy; tự xóa khi xong)
 """
 
 from __future__ import annotations
@@ -59,6 +66,7 @@ import argparse
 import csv
 import itertools
 import math
+import pickle
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -421,6 +429,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--warp-scale", type=float, default=0.03)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output-dir", type=Path, default=Path("experiments"))
+    p.add_argument("--resume", action="store_true",
+                   help="Tiếp tục từ checkpoint, bỏ qua các cặp đã chạy xong.")
+    p.add_argument("--checkpoint-every", type=int, default=20,
+                   help="Ghi checkpoint sau mỗi N cặp (0 = tắt, mặc định 20).")
+    p.add_argument("--state-file", type=Path, default=None,
+                   help="File checkpoint (mặc định: <output-dir>/detection_params_state.pkl).")
     return p.parse_args(argv)
 
 
@@ -457,9 +471,49 @@ def main(argv=None) -> None:
     print(f"{len(pairs)} cặp x {len(args.conditions)} điều kiện x {len(configs)} cấu hình "
           f"(gốc: {config_name(BASELINE)})")
 
+    state_path = args.state_file or (args.output_dir / "detection_params_state.pkl")
+    signature = {
+        "data_dir": str(args.data_dir),
+        "conditions": list(args.conditions),
+        "configs": [config_name(c) for c in configs],
+        "warp": [args.warp_angle, args.warp_shift, args.warp_scale, args.seed],
+        "pairs": [p["pair_id"] for p in pairs],
+    }
+
     rows: List[Dict[str, object]] = []
     diag: List[Dict[str, object]] = []
-    for i, pair in enumerate(pairs, start=1):
+    done = set()
+    if args.resume and state_path.is_file():
+        try:
+            with state_path.open("rb") as fh:
+                state = pickle.load(fh)
+        except (OSError, pickle.UnpicklingError, EOFError) as exc:
+            print(f"[CẢNH BÁO] Không đọc được checkpoint {state_path}: {exc}. Chạy lại từ đầu.")
+            state = None
+        if state is not None:
+            if state.get("signature") == signature:
+                rows = state["rows"]
+                diag = state["diag"]
+                done = set(state["done"])
+                print(f"[RESUME] {state_path.name}: đã xong {len(done)}/{len(pairs)} cặp, "
+                      f"tiếp tục {len(pairs) - len(done)} cặp còn lại.")
+            else:
+                print("[CẢNH BÁO] Checkpoint thuộc cấu hình khác (data/conditions/configs/"
+                      "warp/pairs) -> bỏ qua, chạy lại từ đầu.")
+    elif args.resume:
+        print(f"[RESUME] Chưa có checkpoint {state_path} -> chạy từ đầu.")
+
+    def save_state() -> None:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = state_path.with_name(state_path.name + ".tmp")
+        with tmp.open("wb") as fh:
+            pickle.dump({"signature": signature, "rows": rows, "diag": diag,
+                         "done": sorted(done)}, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp.replace(state_path)
+
+    pending = [p for p in pairs if p["pair_id"] not in done]
+    base = len(pairs) - len(pending)
+    for i, pair in enumerate(pending, start=1):
         gt = read_labels(pair.get("label_path"))
         notes = []
         for cond in args.conditions:
@@ -498,7 +552,11 @@ def main(argv=None) -> None:
                 boxes_by[f"tốt nhất {config_name(cfg_top)}"] = b_top
                 save_inspect(args.output_dir / "inspect" / f"{pair['pair_id']}_{cond}.jpg",
                              template, aligned, diff, gt, masks, boxes_by)
-        print(f"[{i}/{len(pairs)}] {pair['pair_id']:<26} " + " | ".join(notes))
+        print(f"[{base + i}/{len(pairs)}] {pair['pair_id']:<26} " + " | ".join(notes))
+        done.add(pair["pair_id"])
+        if args.checkpoint_every > 0 and i % args.checkpoint_every == 0:
+            save_state()
+            print(f"    [checkpoint] {len(done)}/{len(pairs)} cặp -> {state_path.name}")
 
     if not rows:
         raise SystemExit("Không xử lý được cặp nào.")
@@ -556,6 +614,8 @@ def main(argv=None) -> None:
         write_csv(rows, out / "detection_params_per_pair.csv")
     write_csv(diag, out / "detection_missed_diagnosis.csv")
     plot(summary, out / "charts" / "detection_params.png", best)
+    if state_path.is_file():
+        state_path.unlink()  # chạy xong -> không cần checkpoint nữa
     print(f"\nCSV tổng hợp  : {out / 'detection_params_summary.csv'}")
     if not args.no_per_pair:
         print(f"CSV từng cặp  : {out / 'detection_params_per_pair.csv'}")
