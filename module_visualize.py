@@ -1,29 +1,7 @@
-"""Trực quan hoá kết quả pipeline phát hiện lỗi PCB.
+"""Trực quan hoá: đường nối đặc trưng, kiểm chứng homography, khung đốm lỗi.
 
-Module này gom các hàm vẽ ảnh đang nằm rải rác trong `experiments/exp_feature_matching.py`
-và `main.py` về một chỗ, để `main.py`, `gui_app.py` và các script thực nghiệm dùng chung:
-
-    draw_feature_matches()          đường nối cặp đặc trưng inlier (test <-> template)
-    draw_homography_verification()  ảnh bàn cờ + overlay alpha vùng lệch
-    draw_results()                  đóng khung đỏ + nhãn cho từng đốm lỗi
-
-Ba hàm này **không đổi logic** so với bản cũ: toạ độ, màu, độ dày nét, cách đặt nhãn
-đều giữ nguyên, nên ảnh xuất ra giống trước khi tách module.
-
-Quy ước ảnh vào/ra
-------------------
-- Ảnh màu: `np.ndarray` shape (H, W, 3), BGR, dtype `uint8`.
-- Ảnh xám:  shape (H, W), dtype `uint8` — các hàm tự chuyển sang BGR khi cần vẽ.
-- Mọi hàm trả về ảnh mới, không sửa ảnh truyền vào.
-
-Ví dụ dùng trong GUI:
-
-    from module_visualize import draw_results, draw_homography_verification
-
-    extra = {}
-    boxes, crops, out, elapsed, stats = process_pair(pair, extra_out=extra)
-    annotated = draw_results(extra["gray"], boxes, labels=labels)
-    board = draw_homography_verification(extra["template"], extra["aligned"], alpha=0.35)
+Tách từ `exp_feature_matching.py` / `main.py`, không đổi logic vẽ.
+Ảnh vào là BGR hoặc xám (uint8), ảnh ra là BGR.
 """
 
 from __future__ import annotations
@@ -35,18 +13,13 @@ import numpy as np
 
 Box = Tuple[int, int, int, int]
 
-# Màu dùng chung (BGR) — khớp bản cũ để ảnh không đổi.
-COLOR_DEFECT = (0, 0, 255)      # đỏ: khung lỗi
-COLOR_TEXT = (255, 255, 255)    # trắng: chữ trên nền đỏ
-COLOR_GRID = (0, 0, 255)        # đỏ: đường chia ô bàn cờ
-COLOR_HEAT = (0, 0, 255)        # đỏ: vùng lệch khi overlay alpha
+COLOR_DEFECT = (0, 0, 255)
+COLOR_TEXT = (255, 255, 255)
+COLOR_GRID = (0, 0, 255)
 
 
-# ---------------------------------------------------------------------
-# Tiện ích
-# ---------------------------------------------------------------------
 def ensure_bgr(image: np.ndarray) -> np.ndarray:
-    """Chuyển ảnh xám 1 kênh sang BGR 3 kênh; ảnh màu trả về bản copy."""
+    """Xám -> BGR; ảnh màu trả về bản copy."""
     if image is None:
         raise ValueError("Ảnh đầu vào là None.")
     if image.ndim == 2:
@@ -55,7 +28,7 @@ def ensure_bgr(image: np.ndarray) -> np.ndarray:
 
 
 def fit_width(image: np.ndarray, max_width: int) -> Tuple[np.ndarray, float]:
-    """Thu nhỏ ảnh nếu rộng hơn `max_width`; trả (ảnh, tỉ lệ đã dùng)."""
+    """Thu nhỏ nếu rộng hơn `max_width`; trả (ảnh, tỉ lệ)."""
     h, w = image.shape[:2]
     scale = min(1.0, max_width / float(w))
     if scale < 1.0:
@@ -64,23 +37,14 @@ def fit_width(image: np.ndarray, max_width: int) -> Tuple[np.ndarray, float]:
     return image, scale
 
 
-# Alias giữ tương thích với code cũ gọi `_fit_width`.
-_fit_width = fit_width
+_fit_width = fit_width  # alias cho code cũ
 
 
-# ---------------------------------------------------------------------
-# 1. Đường nối cặp đặc trưng inlier
-# ---------------------------------------------------------------------
 def draw_feature_matches(
     img_test: np.ndarray, img_template: np.ndarray, stats: dict,
     max_lines: int = 150, max_width: int = 1100,
 ) -> np.ndarray:
-    """Ghép test (trái) và template (phải), vẽ đường nối các cặp inlier.
-
-    `stats` là dict thống kê căn chỉnh, cần các khoá:
-    `inlier_pts_test`, `inlier_pts_template`, `detector`, `inliers`,
-    `inlier_ratio`, `reprojection_error`, `time_total_ms`.
-    """
+    """Ghép test | template và nối các cặp inlier trong `stats`."""
     left, s1 = fit_width(img_test, max_width)
     right, s2 = fit_width(img_template, max_width)
     height = max(left.shape[0], right.shape[0])
@@ -112,16 +76,12 @@ def draw_feature_matches(
     return canvas
 
 
-# Tên cũ trong `experiments/exp_feature_matching.py` — giữ để không phải sửa script đó.
-draw_inlier_matches = draw_feature_matches
+draw_inlier_matches = draw_feature_matches  # tên cũ
 
 
-# ---------------------------------------------------------------------
-# 2. Kiểm chứng homography: bàn cờ + overlay alpha
-# ---------------------------------------------------------------------
 def checkerboard(img_template: np.ndarray, img_aligned: np.ndarray,
                  tiles: int = 8) -> np.ndarray:
-    """Ghép xen kẽ ô cờ: đường mạch liền mạch qua ranh giới ô = căn chuẩn."""
+    """Ghép xen kẽ ô cờ: mạch liền qua ranh giới ô = căn chuẩn."""
     h, w = img_template.shape[:2]
     ys = (np.arange(h) * tiles // h)[:, None]
     xs = (np.arange(w) * tiles // w)[None, :]
@@ -139,16 +99,7 @@ def draw_homography_verification(
     img_template: np.ndarray, img_aligned: np.ndarray,
     tiles: int = 8, alpha: float = 0.0, diff_threshold: int = 30,
 ) -> np.ndarray:
-    """Ảnh bàn cờ kiểm chứng căn chỉnh, kèm overlay alpha vùng lệch.
-
-    Tham số:
-        tiles          : số ô mỗi chiều của bàn cờ (mặc định 8).
-        alpha          : độ đậm overlay đỏ ở vùng hai ảnh lệch nhau (0 = tắt,
-                         giống hệt bản cũ; 0.35 là mức đọc được cho báo cáo).
-        diff_threshold : ngưỡng |template - aligned| (thang 0-255) để coi là lệch.
-
-    Trả về ảnh BGR cùng kích thước `img_template`.
-    """
+    """Ảnh bàn cờ; `alpha > 0` tô đỏ vùng hai ảnh lệch quá `diff_threshold`."""
     template = ensure_bgr(img_template)
     aligned = ensure_bgr(img_aligned)
     if aligned.shape[:2] != template.shape[:2]:
@@ -157,27 +108,18 @@ def draw_homography_verification(
     board = checkerboard(template, aligned, tiles=tiles)
 
     if alpha and alpha > 0.0:
-        # Vùng lệch: hai ảnh khác nhau rõ rệt -> tô đỏ với độ đậm `alpha`.
         diff = cv2.absdiff(template, aligned).max(axis=2)
         heat = np.zeros_like(board)
-        heat[diff >= int(diff_threshold)] = COLOR_HEAT
+        heat[diff >= int(diff_threshold)] = COLOR_DEFECT
         a = float(min(max(alpha, 0.0), 1.0))
         board = cv2.addWeighted(board, 1.0 - a, heat, a, 0.0)
     return board
 
 
-# ---------------------------------------------------------------------
-# 3. Khung + nhãn cho từng đốm lỗi
-# ---------------------------------------------------------------------
 def draw_results(img_test: np.ndarray, boxes: Sequence[Box],
                  labels: Optional[Sequence[str]] = None,
                  color: Tuple[int, int, int] = COLOR_DEFECT) -> np.ndarray:
-    """Đóng khung từng bbox và ghi nhãn phía trên.
-
-    `labels` là tuỳ chọn: nếu có (ví dụ `["Spur", "không phải lỗi"]` do
-    `module_classification.classify` trả về) thì dùng làm nhãn; nếu bỏ trống
-    thì giữ nhãn cũ "Defect #1", "Defect #2"... để ảnh kết quả không đổi.
-    """
+    """Đóng khung từng bbox; có `labels` thì ghi tên lớp, không thì "Defect #n"."""
     img_annotated = ensure_bgr(img_test)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -185,16 +127,13 @@ def draw_results(img_test: np.ndarray, boxes: Sequence[Box],
     font_thick = 1
 
     for idx, (x, y, w, h) in enumerate(boxes, start=1):
-        # 1. Khung chữ nhật quanh lỗi (độ dày nét = 2)
         cv2.rectangle(img_annotated, (x, y), (x + w, y + h), color, 2)
 
-        # 2. Nhãn: tên lớp nếu có, ngược lại "Defect #n"
         if labels is not None and idx - 1 < len(labels):
             label = str(labels[idx - 1])
         else:
             label = f"Defect #{idx}"
 
-        # 3. Khung nền cho nhãn, kẹp trong biên ảnh
         (text_w, text_h), baseline = cv2.getTextSize(label, font, font_scale, font_thick)
         label_y = max(y - 5, text_h + 5)
         label_x = min(max(x, 0), max(img_annotated.shape[1] - text_w - 4, 0))
