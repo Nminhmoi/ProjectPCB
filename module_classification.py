@@ -1,27 +1,10 @@
-"""Phân loại khuyết tật PCB bằng Machine Learning truyền thống (SVM / Random Forest).
+"""Phân loại khuyết tật PCB bằng ML truyền thống (SVM / Random Forest, `cv2.ml`).
 
-Module này là **hợp đồng dùng chung** giữa phần phát hiện (đốm lỗi từ
-`module_detection.extract_bounding_boxes`) và phần giao diện (`gui_app.py`).
+Hợp đồng dùng chung giữa phần phát hiện và `gui_app.py`:
+`CLASS_NAMES`, `FEATURE_NAMES`, `extract_features`, `load_model`, `save_model`,
+`classify`. Huấn luyện/đánh giá nằm ở `experiments/exp_classify.py`.
 
-Phạm vi:
-    - Định nghĩa tên lớp, tên đặc trưng, nhãn hiển thị.
-    - Trích đặc trưng hình thái cho từng blob (`extract_features`).
-    - Nạp/lưu model đã huấn luyện (`load_model`, `save_model`).
-    - Suy luận nhãn cho danh sách bbox (`classify`).
-
-KHÔNG thuộc phạm vi module này: huấn luyện và đánh giá. Việc đó nằm ở
-`experiments/build_classifier_dataset.py` (sinh dataset) và
-`experiments/exp_classify.py` (train, confusion matrix, lưu model).
-
-Ví dụ dùng trong GUI khi model đã có:
-
-    from module_classification import classify
-    labels = classify(gray, mask, boxes)      # ["Spur", "không phải lỗi", ...]
-
-Khi chưa huấn luyện xong (hoặc không tìm thấy `model_classifier.pkl`),
-`classify` trả về `"chưa phân loại"` cho mọi bbox — GUI vẫn chạy được.
-
-Dùng OpenCV ML (`cv2.ml.SVM`, `cv2.ml.RTrees`), không cần scikit-learn.
+Chưa có `model_classifier.pkl` thì `classify` trả `"chưa phân loại"` cho mọi box.
 """
 
 from __future__ import annotations
@@ -34,9 +17,6 @@ import numpy as np
 
 Box = Tuple[int, int, int, int]
 
-# --- Tên lớp -------------------------------------------------------------
-# 6 nhóm khuyết tật theo IPC-A-600, đúng thứ tự `class_name` trong
-# data/PKU-Market-PCB/pairs_manifest.csv.
 DEFECT_CLASSES: List[str] = [
     "Missing_hole",
     "Mouse_bite",
@@ -46,28 +26,16 @@ DEFECT_CLASSES: List[str] = [
     "Spurious_copper",
 ]
 
-# Lớp thứ 7: blob phát hiện nhưng không khớp nhãn GT nào (báo động giả).
-# Nhờ lớp này, model có thể học cách loại đốm nhiễu thay vì chỉ gán nhãn.
 BACKGROUND_CLASS = "background"
-
 CLASS_NAMES: List[str] = DEFECT_CLASSES + [BACKGROUND_CLASS]
 
-# Nhãn hiển thị cho người dùng cuối (GUI / ảnh kết quả).
-LABEL_UNKNOWN = "chưa phân loại"      # chưa có model
-LABEL_BACKGROUND = "không phải lỗi"   # model đoán là báo động giả
+LABEL_UNKNOWN = "chưa phân loại"
+LABEL_BACKGROUND = "không phải lỗi"
 
-# --- Tên đặc trưng -------------------------------------------------------
-# Thứ tự này phải khớp tuyệt đối với vector do `extract_features` trả về,
-# vì model đã huấn luyện phụ thuộc vào đúng thứ tự cột.
+# Thứ tự phải khớp tuyệt đối với cột của model đã huấn luyện.
 FEATURE_NAMES: List[str] = [
-    "area",         # diện tích blob (pixel)
-    "perimeter",    # chu vi contour
-    "aspect",       # cạnh dài / cạnh ngắn của minAreaRect (>= 1)
-    "extent",       # area / (w*h) của bounding box
-    "solidity",     # area / diện tích convex hull
-    "circularity",  # 4*pi*area / perimeter^2
-    "hu1", "hu2", "hu3", "hu4", "hu5", "hu6", "hu7",  # log-scale Hu moments
-    "mean_diff",    # độ sáng trung bình trong blob (bản đồ vi sai)
+    "area", "perimeter", "aspect", "extent", "solidity", "circularity",
+    "hu1", "hu2", "hu3", "hu4", "hu5", "hu6", "hu7", "mean_diff",
 ]
 
 DEFAULT_MODEL_PATH = Path("model_classifier.pkl")
@@ -75,22 +43,7 @@ DEFAULT_MODEL_PATH = Path("model_classifier.pkl")
 
 def extract_features(gray: np.ndarray, mask: np.ndarray,
                      boxes: Sequence[Box]) -> np.ndarray:
-    """Trích vector đặc trưng hình thái cho từng bbox.
-
-    Tham số:
-        gray  : ảnh xám của ảnh test đã căn chỉnh (uint8, shape HxW).
-        mask  : mask nhị phân của bản đồ vi sai (uint8, 0/255, cùng shape).
-        boxes : danh sách (x, y, w, h) từ `extract_bounding_boxes`.
-
-    Trả về:
-        np.ndarray shape (N, len(FEATURE_NAMES)), dtype float32, không có NaN.
-
-    Ghi chú triển khai (việc P1 #3 trong TASKS_NOW.md):
-        - Tách contour con trong từng bbox bằng `cv2.findContours` trên `mask`.
-        - Hu moments phải log-scale: ``-sign(h) * log10(|h|)`` (Hu thô lệch
-          nhiều bậc độ lớn, không chuẩn hoá thì SVM gần như bỏ qua).
-        - `mean_diff` lấy trung bình `gray` trong contour (hoặc trong bbox).
-    """
+    """Trả (N, len(FEATURE_NAMES)) float32 cho từng bbox."""
     raise NotImplementedError(
         "extract_features chưa hoàn thiện (việc P1 #3 trong TASKS_NOW.md). "
         "Việc P0 #1 chỉ chốt hợp đồng: tên lớp, tên đặc trưng, load_model, classify."
@@ -98,17 +51,7 @@ def extract_features(gray: np.ndarray, mask: np.ndarray,
 
 
 def load_model(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    """Nạp model đã huấn luyện; trả `None` nếu chưa có file (GUI vẫn chạy).
-
-    Định dạng file (pickle) — do `experiments/exp_classify.py` ghi ra::
-
-        {
-            "model":   cv2.ml.SVM / cv2.ml.RTrees (có .predict),
-            "scaler":  {"mean": np.ndarray, "std": np.ndarray} hoặc None,
-            "classes": ["Missing_hole", ..., "background"],
-            "feature_names": FEATURE_NAMES,
-        }
-    """
+    """Nạp model pickle; trả `None` nếu chưa có file."""
     model_path = Path(path) if path is not None else DEFAULT_MODEL_PATH
     if not model_path.is_file():
         return None
@@ -122,7 +65,7 @@ def load_model(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
 
 
 def save_model(model: Dict[str, Any], path: Optional[Path] = None) -> Path:
-    """Lưu model ra pickle; trả về đường dẫn đã ghi."""
+    """Lưu model ra pickle; trả đường dẫn đã ghi."""
     model_path = Path(path) if path is not None else DEFAULT_MODEL_PATH
     model_path.parent.mkdir(parents=True, exist_ok=True)
     with model_path.open("wb") as fh:
@@ -132,11 +75,7 @@ def save_model(model: Dict[str, Any], path: Optional[Path] = None) -> Path:
 
 def classify(gray: np.ndarray, mask: np.ndarray, boxes: Sequence[Box],
              model: Optional[Dict[str, Any]] = None) -> List[str]:
-    """Gán nhãn cho từng bbox; không có model thì trả `LABEL_UNKNOWN`.
-
-    Chữ ký này là hợp đồng với `gui_app.py`: chỉ cần gray + mask + boxes.
-    Lớp `background` được đổi thành nhãn thân thiện `"không phải lỗi"`.
-    """
+    """Gán nhãn cho từng bbox; chưa có model thì trả `LABEL_UNKNOWN`."""
     boxes = list(boxes or [])
     if not boxes:
         return []
@@ -153,9 +92,7 @@ def classify(gray: np.ndarray, mask: np.ndarray, boxes: Sequence[Box],
         features = (np.asarray(features, dtype=np.float64)
                     - np.asarray(scaler["mean"], dtype=np.float64)) / std
 
-    estimator = model["model"]
-    output = estimator.predict(np.asarray(features, dtype=np.float32))
-    # cv2.ml trả về tuple (retval, results); một số wrapper chỉ trả mảng.
+    output = model["model"].predict(np.asarray(features, dtype=np.float32))
     predictions = output[1] if isinstance(output, tuple) else output
     predictions = np.asarray(predictions).ravel()
 
