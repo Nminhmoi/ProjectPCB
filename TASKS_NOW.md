@@ -84,7 +84,7 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 ## 5. Checklist nhanh theo người
 
 **Minh**
-- [ ] #1 interface + stub `classify()`
+- [x] #1 interface + stub `classify()`
 - [ ] #3 `extract_features()`
 - [ ] #4 `build_classifier_dataset.py`
 - [ ] #5 `exp_classify.py`

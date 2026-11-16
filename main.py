@@ -114,7 +114,8 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
                  threshold_floor: int = DEFAULT_THRESHOLD_FLOOR,
                  open_ksize: int = DEFAULT_OPEN_KSIZE,
                  hysteresis_low=DEFAULT_HYSTERESIS_LOW,
-                 min_area: int = DEFAULT_MIN_AREA) -> tuple:
+                 min_area: int = DEFAULT_MIN_AREA,
+                 extra_out: "dict | None" = None) -> tuple:
     """
     Chạy toàn bộ pipeline trên 1 cặp ảnh.
 
@@ -125,6 +126,9 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     `fallbacks` detector dự phòng khi detector chính bị từ chối (mặc định: không có).
     `min_ncc` ngưỡng NCC kiểm chứng căn chỉnh bằng điểm ảnh — chốt chặn thảm hoạ,
     không dùng để tinh chỉnh (mặc định 0.90; None = tắt).
+    `extra_out` dict tuỳ chọn: nếu truyền vào, hàm điền thêm các khoá
+    template/aligned/gray/mask/valid/boxes để GUI hoặc bước phân loại dùng lại,
+    khỏi phải chạy lại pipeline.
 
     Trả về: (boxes, crop_paths, output_path, thời_gian_giây, align_stats)
     """
@@ -182,6 +186,16 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     cv2.imwrite(output_path, img_result)
 
     elapsed = time.time() - start
+    if extra_out is not None:
+        # Dùng lại kết quả trung gian cho GUI / bước phân loại (không chạy lại pipeline).
+        extra_out.update(
+            template=img_temp_color,
+            aligned=img_test_aligned,
+            gray=cv2.cvtColor(img_test_aligned, cv2.COLOR_BGR2GRAY),
+            mask=diff_mask,
+            valid=valid_mask,
+            boxes=boxes,
+        )
     return boxes, crop_paths, output_path, elapsed, align_stats
 
 
