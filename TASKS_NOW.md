@@ -41,7 +41,6 @@ git switch -c feature/<ten-nhanh>
 | **P2** | 9 | **Rà số liệu §2.1 / 2.2 / 2.4** của `PROGRESS_REPORT.md` + dựng script vẽ lại `charts/max_features_study.png` từ CSV | Nam Anh | 2 h | Mọi số trong bảng truy được về `experiments/*.csv`; script vẽ chạy lại được sau khi có số mới | — |
 | **P2** | 10 | **`evaluate_metrics.py`**: CLI bọc `evaluation.py` (IoU / Precision / Recall / F1 trên 693) | Hinh | 1 h | `--limit 3` in bảng số đúng định dạng báo cáo | — |
 | **P2** | 11 | **`tests/test_contracts.py`**: ~6 assert (xem mục 6) — hợp đồng hàm + toàn vẹn dữ liệu, chạy 2 giây, không cần ảnh thật | Minh | 30' | `python tests/test_contracts.py` in PASS/FAIL rõ ràng, exit code 0 | — |
-| **P2** | 12 | **Khung slide** 10–12 trang + danh sách ảnh cần chụp | Hinh | 2 h | `docs/slides.md` (hoặc pptx), dùng ảnh trong `experiments/vis/`, `experiments/charts/` | — |
 
 **Nếu chỉ làm được 3 việc hôm nay:** #1 → #2 → #3 (mở khoá GUI, rồi vào đường găng phân loại).
 
@@ -96,7 +95,6 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 - [ ] #2 `module_visualize.py`
 - [ ] #6 `gui_app.py`
 - [ ] #10 `evaluate_metrics.py`
-- [ ] #12 khung slide
 
 **Nam Anh**
 - [ ] #8 test SIFT fallback
