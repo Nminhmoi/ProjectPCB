@@ -17,6 +17,11 @@ DETECTORS = ("ORB", "SIFT", "AKAZE")
 DEFAULT_DETECTOR = "ORB"
 # Diem can bang do chinh xac / toc do, chot tu experiments/exp_max_features.py.
 DEFAULT_MAX_FEATURES = 2000
+DEFAULT_FALLBACKS = [("SIFT", 2000)]
+DEFAULT_MIN_AREA = 20
+DEFAULT_MIN_NCC = 0.85
+DEFAULT_OPEN_KSIZE = 3
+DEFAULT_THRESHOLD_FLOOR = 30
 
 # Ten cu, giu de code/nhan xet cu van doc duoc. main.py nen truyen --detector.
 DETECTOR_NAME = DEFAULT_DETECTOR
@@ -299,6 +304,103 @@ def align_images(
     return aligned
 
 
+def compute_ncc(img1: np.ndarray, img2: np.ndarray) -> float:
+    """Tinh Normalized Cross-Correlation (NCC) do do khop giua 2 anh da can chinh."""
+    if img1 is None or img2 is None:
+        return 0.0
+    g1 = _to_gray(img1, "img1").astype(np.float32)
+    g2 = _to_gray(img2, "img2").astype(np.float32)
+    if g1.shape != g2.shape:
+        g2 = cv2.resize(g2, (g1.shape[1], g1.shape[0]), interpolation=cv2.INTER_LINEAR)
+    g1 -= np.mean(g1)
+    g2 -= np.mean(g2)
+    std1 = float(np.std(g1))
+    std2 = float(np.std(g2))
+    if std1 < 1e-6 or std2 < 1e-6:
+        return 0.0
+    return float(np.mean((g1 / std1) * (g2 / std2)))
+
+
+def warp_valid_mask(
+    img: np.ndarray, H: np.ndarray, out_shape: tuple, erode_border: int = 3
+) -> np.ndarray:
+    """Tao mask nhị phan loai bo vien den do phep bien doi warpPerspective sinh ra."""
+    h, w = out_shape[:2]
+    mask = cv2.warpPerspective(
+        np.full(img.shape[:2], 255, np.uint8),
+        H, (w, h),
+        flags=cv2.INTER_NEAREST,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    )
+    if erode_border > 0:
+        k = erode_border * 2 + 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+        mask = cv2.erode(mask, kernel)
+    return mask
+
+
+def align_images_robust(
+    img_template: np.ndarray,
+    img_test: np.ndarray,
+    max_features: int = DEFAULT_MAX_FEATURES,
+    detector: str = DEFAULT_DETECTOR,
+    fallbacks: list = None,
+    min_ncc: float = None,
+) -> tuple[np.ndarray, dict]:
+    """Can chinh anh voi co che du phong (Fallback) va kiem chung NCC."""
+    detectors_to_try = [(detector, max_features)]
+    if fallbacks:
+        for fb in fallbacks:
+            fb_det = fb[0] if isinstance(fb, (list, tuple)) else fb
+            fb_feat = fb[1] if isinstance(fb, (list, tuple)) and len(fb) > 1 else max_features
+            if fb_det != detector:
+                detectors_to_try.append((fb_det, fb_feat))
+
+    last_error = None
+    best_aligned = None
+    best_stats = None
+    best_ncc = -1.0
+
+    for det_name, feat_count in detectors_to_try:
+        if not is_detector_available(det_name):
+            continue
+        try:
+            aligned, stats = align_images_with_stats(
+                img_template, img_test,
+                max_features=feat_count,
+                detector=det_name,
+            )
+            ncc_val = compute_ncc(img_template, aligned)
+            stats["ncc"] = ncc_val
+            stats["fallback_used"] = (det_name != detector)
+
+            if min_ncc is not None:
+                stats["verified"] = (ncc_val >= min_ncc)
+                if ncc_val < min_ncc:
+                    if ncc_val > best_ncc:
+                        best_ncc = ncc_val
+                        best_aligned = aligned
+                        best_stats = stats
+                    continue
+            else:
+                stats["verified"] = True
+
+            return aligned, stats
+        except AlignmentError as exc:
+            last_error = exc
+            continue
+
+    if best_aligned is not None:
+        best_stats["verified"] = False
+        return best_aligned, best_stats
+
+    if last_error is not None:
+        raise last_error
+
+    raise AlignmentError(f"Can chinh that bai voi tat ca bo dac trung: {detectors_to_try}", {})
+
+
 def gaussian_blur(gray: np.ndarray, ksize: int = 3) -> np.ndarray:
     """Gaussian blur dung chung cho pipeline va thi nghiem kernel.
 
@@ -353,7 +455,14 @@ def difference_map(
     return diff, blur_ms
 
 
-def binarize_difference(diff: np.ndarray, border: int = 8) -> np.ndarray:
+def binarize_difference(
+    diff: np.ndarray,
+    border: int = 8,
+    threshold_floor: int = 30,
+    open_ksize: int = 3,
+    hysteresis_low: int = None,
+    valid: np.ndarray = None,
+) -> np.ndarray:
     """Otsu + nguong san + bo vien + morphology opening."""
     if diff is None or diff.size == 0:
         raise ValueError("Ban do vi sai rong.")
@@ -366,21 +475,29 @@ def binarize_difference(diff: np.ndarray, border: int = 8) -> np.ndarray:
     otsu_val, _ = cv2.threshold(
         diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
     )
-    threshold_value = max(int(otsu_val), 30)
+    threshold_value = max(int(otsu_val), threshold_floor)
 
     _, diff_binary = cv2.threshold(
         diff, threshold_value, 255, cv2.THRESH_BINARY
     )
 
+    # Loai bo phan ngoai vung hop le (warpPerspective)
+    if valid is not None:
+        diff_binary = cv2.bitwise_and(diff_binary, valid)
+
     # Bo vien anh
-    diff_binary[:border, :] = 0
-    diff_binary[-border:, :] = 0
-    diff_binary[:, :border] = 0
-    diff_binary[:, -border:] = 0
+    if border > 0:
+        diff_binary[:border, :] = 0
+        diff_binary[-border:, :] = 0
+        diff_binary[:, :border] = 0
+        diff_binary[:, -border:] = 0
 
     # Khu nhieu bang morphology opening
-    clean_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    diff_cleaned = cv2.morphologyEx(diff_binary, cv2.MORPH_OPEN, clean_kernel)
+    if open_ksize > 1:
+        clean_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (open_ksize, open_ksize))
+        diff_cleaned = cv2.morphologyEx(diff_binary, cv2.MORPH_OPEN, clean_kernel)
+    else:
+        diff_cleaned = diff_binary
 
     return diff_cleaned
 

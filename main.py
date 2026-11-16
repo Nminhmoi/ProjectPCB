@@ -20,55 +20,15 @@ from module_preprocess import (
 # 2. Import module phát hiện & cắt đốm lỗi
 from module_detection import extract_bounding_boxes, crop_defect_patches
 
-# 3. Import loader dùng chung (đọc pairs_manifest.csv + labels/)
+# 3. Import module trực quan hóa kết quả
+from module_visualization import (
+    draw_results,
+    draw_feature_matches,
+    draw_homography_verification,
+)
+
+# 4. Import loader dùng chung (đọc pairs_manifest.csv + labels/)
 from dataset_utils import find_pairs, load_image
-
-
-# đóng khung đỏ đốm lỗi
-def draw_results(img_test: np.ndarray, boxes: list) -> np.ndarray:
-    # Đảm bảo ảnh vẽ là ảnh màu 3 kênh BGR
-    if len(img_test.shape) == 2:
-        img_annotated = cv2.cvtColor(img_test, cv2.COLOR_GRAY2BGR)
-    else:
-        img_annotated = img_test.copy()
-
-    red_color = (0, 0, 255)
-
-    for idx, (x, y, w, h) in enumerate(boxes, start=1):
-        # 1. Vẽ ô chữ nhật màu đỏ bao quanh lỗi (độ dày nét = 2)
-        cv2.rectangle(img_annotated, (x, y), (x + w, y + h), red_color, 2)
-
-        # 2. Tạo nhãn chữ Defect #1, Defect #2...
-        label = f"Defect #{idx}"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.45
-        font_thick = 1
-
-        # Tính kích thước khung chứa nhãn
-        (text_w, text_h), baseline = cv2.getTextSize(label, font, font_scale, font_thick)
-        label_y = max(y - 5, text_h + 5)
-        label_x = x
-
-        # Vẽ nền nhãn màu đỏ
-        cv2.rectangle(
-            img_annotated,
-            (label_x, label_y - text_h - 2),
-            (label_x + text_w + 4, label_y + baseline - 2),
-            red_color,
-            -1
-        )
-        # Viết chữ màu trắng lên nền đỏ
-        cv2.putText(
-            img_annotated,
-            label,
-            (label_x + 2, label_y - 2),
-            font,
-            font_scale,
-            (255, 255, 255),
-            font_thick,
-            cv2.LINE_AA
-        )
-    return img_annotated
 
 
 # hàm dọn output
@@ -101,7 +61,8 @@ def clean_output_directories(directories: list = None) -> int:
 
 
 def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
-                 max_features: int = DEFAULT_MAX_FEATURES) -> tuple:
+                 max_features: int = DEFAULT_MAX_FEATURES,
+                 visualize: bool = False) -> tuple:
     """
     Chạy toàn bộ pipeline trên 1 cặp ảnh.
 
@@ -109,6 +70,7 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     pair_id, test_path, template_path, class_name, annotation_path, ...
 
     `detector` chọn bộ đặc trưng căn chỉnh: ORB / SIFT / AKAZE.
+    `visualize`: nếu True, xuất thêm ảnh đường nối đặc trưng và kiểm định căn chỉnh.
 
     Trả về: (boxes, crop_paths, output_path, thời_gian_giây, align_stats)
     """
@@ -152,6 +114,13 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     output_path = os.path.join(results_dir, f'result_{img_id}.jpg')
     cv2.imwrite(output_path, img_result)
 
+    # 7. Trực quan hóa đặc trưng & kiểm định căn chỉnh (nếu bật --visualize)
+    if visualize and align_stats.get("success"):
+        p_matches = os.path.join(results_dir, f'matches_{img_id}.jpg')
+        cv2.imwrite(p_matches, draw_feature_matches(img_test_color, img_temp_color, align_stats))
+        p_verify = os.path.join(results_dir, f'verify_{img_id}.jpg')
+        cv2.imwrite(p_verify, draw_homography_verification(img_temp_color, img_test_aligned))
+
     elapsed = time.time() - start
     return boxes, crop_paths, output_path, elapsed, align_stats
 
@@ -187,6 +156,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_MAX_FEATURES,
         help=f"Số đặc trưng tối đa cho mỗi ảnh (mặc định: {DEFAULT_MAX_FEATURES}).",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Xuất thêm ảnh nối điểm đặc trưng (matches) và kiểm định căn chỉnh (Checkerboard & Overlay).",
     )
     return parser.parse_args()
 
@@ -228,7 +202,8 @@ def main():
 
         try:
             boxes, crop_paths, output_path, elapsed, align_stats = process_pair(
-                pair, detector=args.detector, max_features=args.max_features
+                pair, detector=args.detector, max_features=args.max_features,
+                visualize=args.visualize,
             )
         except Exception as exc:
             print(f"    [LỖI] {exc}")
