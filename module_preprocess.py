@@ -40,10 +40,10 @@ APPEARANCE_BLUR = 3             # Gaussian sau khi thu nho: can bang do sac net 
 DEFAULT_FALLBACKS = ()
 
 # --- Tham so nhi phan hoa ban do vi sai (P0.3 / P1.1) ---------------------
-# Gia tri mac dinh = pipeline da chay 693 cap (F1 0.972). Doi bang
-# experiments/exp_detection_params.py truoc khi sua o day.
-DEFAULT_THRESHOLD_FLOOR = 30    # nguong san: max(Otsu, floor)
-DEFAULT_OPEN_KSIZE = 3          # kernel morphology opening (<=1: bo opening)
+# Gia tri mac dinh chot tu luoi 60 cau hinh (experiments/detection_defaults.md).
+# Doi bang experiments/exp_detection_params.py + chay experiments/verify_defaults.py.
+DEFAULT_THRESHOLD_FLOOR = 20    # nguong san: max(Otsu, floor)
+DEFAULT_OPEN_KSIZE = 2          # kernel morphology opening (<=1: bo opening)
 DEFAULT_HYSTERESIS_LOW = None   # vd 0.5: giu vung >= 0.5*nguong neu noi voi vung manh
 DEFAULT_MIN_AREA = 20           # dien tich toi thieu cua dom loi (module_detection)
 
@@ -674,11 +674,12 @@ def binarize_difference(
             keep[0] = False
             diff_binary = np.where(keep[labels], 255, 0).astype(np.uint8)
 
-    # Bo vien anh
-    diff_binary[:border, :] = 0
-    diff_binary[-border:, :] = 0
-    diff_binary[:, :border] = 0
-    diff_binary[:, -border:] = 0
+    # Bo vien anh (border=0 nghia la khong bo; tranh -0: cat toan bo anh)
+    if border > 0:
+        diff_binary[:border, :] = 0
+        diff_binary[-border:, :] = 0
+        diff_binary[:, :border] = 0
+        diff_binary[:, -border:] = 0
 
     # Khu nhieu bang morphology opening
     if open_ksize and open_ksize > 1:

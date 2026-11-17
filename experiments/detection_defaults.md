@@ -60,11 +60,10 @@ mọi cấu hình đều 0,07–0,09 đốm giả/ảnh (ngưỡng 0,05). Ghi r�
 
 ## 5. Quyết định
 
-- [ ] Giữ `floor30_open3_single_area20` (không giảm precision ở cả 2 điều kiện,
-      nhưng còn 3 cặp sót toàn bộ và recall Spur+SpCu ~0,93)
-- [ ] Đổi sang `floor20_open2_single_area20` (F1 +0,014, hết cặp sót toàn bộ,
-      đổi lại precision resample −0,0014 ≈ 4 dự đoán sai thêm)
+**Nhóm chốt (17/11): đổi sang `floor20_open2_single_area20`** — ưu tiên
+recall ≥ 95% theo báo cáo buổi thông, chấp nhận precision resample giảm 0,0014.
 
-Sau khi chốt: sửa `DEFAULT_*` trong `module_preprocess.py`, chạy
-`experiments/verify_defaults.py` (so lại đúng bảng trong tài liệu này), rồi chạy
-lại `build_classifier_dataset.py` + `exp_classify.py` vì bbox đổi theo.
+Đã áp dụng: `DEFAULT_THRESHOLD_FLOOR = 20`, `DEFAULT_OPEN_KSIZE = 2`
+(`DEFAULT_HYSTERESIS_LOW = None`, `DEFAULT_MIN_AREA = 20` giữ nguyên).
+Kiểm chứng bằng `experiments/verify_defaults.py`; sau đó chạy lại
+`build_classifier_dataset.py` + `exp_classify.py` vì bbox đổi theo.

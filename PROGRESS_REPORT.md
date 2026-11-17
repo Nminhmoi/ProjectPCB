@@ -173,3 +173,114 @@ Chạy `py -3.14 experiments/exp_rgb2binary.py`, đo trung bình trên 693 cặp
   * Đặc trưng kết cấu: Histogram of Oriented Gradients (HOG) cho biên cạnh khuyết tật.
 * **Huấn luyện mô hình:** Sử dụng **SVM (Support Vector Machine)** hoặc **Random Forest** phân loại vào đúng 6 nhóm khuyết tật IPC-A-600.
 * **Xây dựng Giao diện người dùng (GUI Demo):** Ứng dụng Desktop bấm nút nạp ảnh và hiển thị kết quả kiểm tra trực quan.
+
+---
+
+## 5. KẾT QUẢ PHÂN LOẠI KHUYẾT TẬT (GIAI ĐOẠN 3)
+
+Mục 4 là hướng triển khai; mục này là kết quả đã thực hiện. Mọi số liệu đều sinh bằng script, không nhập tay:
+
+| Script | Vai trò | Đầu ra |
+| :--- | :--- | :--- |
+| `experiments/build_classifier_dataset.py` | Chạy pipeline trên 693 cặp, ghép blob ↔ GT | `experiments/classifier_dataset.csv` |
+| `experiments/exp_classify.py` | Huấn luyện + đánh giá SVM/RF theo `pair_id` | `model_classifier.pkl`, `classify_results*.csv`, `charts/confusion_matrix.png` |
+| `experiments/verify_defaults.py` | Tái lập bảng tham số phát hiện đã chốt | So khớp `detection_params_summary.csv` |
+
+### 5.1. Bộ dữ liệu huấn luyện
+
+* **693/693 cặp** chạy được (không cặp nào căn chỉnh thất bại).
+* **3.078 blob** phát hiện; **3.024 blob khớp Ground Truth (98,2%)**, còn **54 blob (1,8%)** không khớp → gán nhãn `background`.
+* Nhãn của mỗi blob lấy từ `class_name` của cặp ảnh (PKU-Market-PCB: mỗi ảnh chỉ chứa một loại khuyết tật).
+* Ghép blob ↔ GT: tâm blob nằm trong hộp GT, hoặc IoU ≥ 0,1 (IoU thấp vì bbox pipeline khoanh phần lõi vi sai, nhỏ hơn hộp GT).
+
+| Lớp | Số blob | Tỷ lệ |
+| :--- | ---: | ---: |
+| Missing_hole | 497 | 16,1% |
+| Mouse_bite | 497 | 16,1% |
+| Open_circuit | 497 | 16,1% |
+| Short | 535 | 17,4% |
+| Spur | 492 | 16,0% |
+| Spurious_copper | 506 | 16,4% |
+| `background` | 54 | 1,8% |
+| **Tổng** | **3.078** | 100% |
+
+### 5.2. Vector đặc trưng (14 chiều, `module_classification.py: extract_features`)
+
+| Nhóm | Đặc trưng |
+| :--- | :--- |
+| Hình học | `area` (số pixel), `perimeter`, `aspect` (minAreaRect), `extent`, `solidity`, `circularity` |
+| Bất biến hình dạng | 7 mô-men Hu, lấy log-scale có dấu `-sign(h)·log10(|h|)` để nén dải động |
+| Cường độ | `mean_diff`: độ xám trung bình trong blob (lỗi sáng/tối khác nhau) |
+
+### 5.3. Cách huấn luyện và đánh giá
+
+* **Chia train/test theo `pair_id`** (GroupKFold 5 fold): mọi blob của một ảnh chỉ nằm ở một phía, tránh rò rỉ dữ liệu do các blob cùng ảnh rất giống nhau. Đây là điểm khác biệt so với chia ngẫu nhiên theo dòng.
+* Chuẩn hoá z-score (mean/std tính trên tập train của từng fold), **không** oversample (thử oversample cho kết quả thấp hơn).
+* Hai họ mô hình, đều dùng `cv2.ml` (không deep learning): **SVM RBF** (C = 1, 10, 100) và **Random Forest** (60 cây, độ sâu ≤ 12/20).
+* Chỉ số: precision / recall / F1 từng lớp (out-of-fold), F1 macro, accuracy, ma trận nhầm lẫn.
+
+### 5.4. Kết quả
+
+**7 lớp (có `background`)** — chọn RF độ sâu 20, 60 cây:
+
+| Lớp | support | precision | recall | F1 |
+| :--- | ---: | ---: | ---: | ---: |
+| Missing_hole | 497 | 0,992 | 0,986 | **0,989** |
+| Mouse_bite | 497 | 0,909 | 0,964 | **0,936** |
+| Open_circuit | 497 | 0,939 | 0,934 | **0,936** |
+| Short | 535 | 0,900 | 0,938 | **0,919** |
+| Spurious_copper | 506 | 0,951 | 0,889 | **0,919** |
+| Spur | 492 | 0,842 | 0,911 | **0,875** |
+| `background` | 54 | – | 0,000 | **0,000** |
+| **Macro F1 / Accuracy** | | | | **0,796 / 0,920** |
+
+**6 lớp (bỏ `background`)** — cùng cấu hình RF:
+
+| Lớp | Missing_hole | Mouse_bite | Open_circuit | Short | Spur | Spurious_copper | Macro F1 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| F1 | 0,990 | 0,949 | 0,943 | 0,926 | 0,883 | 0,924 | **0,936** |
+| Accuracy | | | | | | | **0,936** |
+
+**So sánh mô hình** (`experiments/classify_results.csv`):
+
+| Mô hình | Macro F1 (7 lớp) | Accuracy (7 lớp) | Macro F1 (6 lớp) | Accuracy (6 lớp) |
+| :--- | ---: | ---: | ---: | ---: |
+| SVM RBF, C = 100 (tốt nhất của SVM) | 0,562 | 0,659 | 0,690 | 0,698 |
+| **Random Forest, 60 cây, sâu ≤ 20** | **0,796** | **0,920** | **0,936** | **0,936** |
+
+* Độ ổn định: chạy lại với `--seed 1/2` cho macro F1 0,795–0,799 (7 lớp) và 0,934–0,939 (6 lớp), độ lệch chuẩn giữa 5 fold ≤ 0,01 → kết quả không phụ thuộc cách chia.
+* Ma trận nhầm lẫn: `experiments/charts/confusion_matrix.png` (7 lớp) và `experiments/charts/6cls/confusion_matrix.png` (6 lớp).
+* Nhầm lẫn chính: `Spur` ↔ `Short` (28 + 14 blob) và `Spurious_copper` ↔ `Spur` (41 blob) — các lớp này có hình dạng gai/đồng thừa rất giống nhau ở độ phân giải của PKU.
+
+### 5.5. Hạn chế phải nêu trung thực
+
+1. **`background` không học được**: chỉ 54 blob (1,8%), recall = 0 trên dữ liệu chưa thấy — model **không bao giờ** dự đoán `background`. Nghĩa là bbox rác vẫn bị gán một nhãn lỗi. Không được viết "hệ thống loại được báo động giả"; chỉ nói phân loại 6 lớp lỗi.
+2. Macro F1 7 lớp (0,796) bị kéo xuống bởi lớp `background`; vì vậy báo cáo **cả hai** bộ số, và nêu rõ 0,936 là con số của bài toán 6 lớp.
+3. **Số F1 ở mục 2.1** (ORB 0,9723 / SIFT 0,9752 / AKAZE 0,9752) đo bằng tham số phát hiện **cũ** (`floor 30 / open 3`). Sau khi chốt tham số mới (mục 5.6), các số này cần chạy lại `experiments/exp_feature_matching.py` nếu muốn dẫn trong báo cáo cuối.
+
+### 5.6. Chốt tham số phát hiện (nhóm quyết định 17/11)
+
+Trên lưới 60 cấu hình × 693 cặp × 2 điều kiện (`clean` = ảnh gốc, `resample` = ảnh nắn lệch rồi căn lại), nhóm chọn `floor20_open2_single_area20` vì **ưu tiên recall ≥ 95%**:
+
+| Điều kiện | F1 | Precision | Recall | Đốm giả/ảnh | Cặp sót toàn bộ |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| clean — cấu hình cũ (floor 30/open 3) | 0,9764 | 0,9824 | 0,9705 | 0,076 | 3 |
+| clean — **cấu hình chốt (floor 20/open 2)** | **0,9895** | 0,9828 | **0,9963** | 0,076 | **0** |
+| resample — cấu hình cũ | 0,9744 | 0,9836 | 0,9655 | 0,071 | 3 |
+| resample — **cấu hình chốt** | **0,9885** | 0,9822 | **0,9949** | 0,079 | **0** |
+
+* Đánh đổi đã chấp nhận: precision resample −0,0014 (≈ 4 dự đoán sai thêm trên ~3.000) để lấy +0,029 recall và **hết 3 cặp sót toàn bộ** (`01_spur_04`, `04_spurious_copper_05`, `01_mouse_bite_19`).
+* `experiments/verify_defaults.py` chạy lại đúng cấu hình này trên 693 cặp × 2 điều kiện và khớp từng chỉ số với `experiments/detection_params_summary.csv` → chốt chặn hồi quy.
+* **Không cấu hình nào trong 60 cấu hình đạt KPI `false_blobs ≤ 0,05 đốm/ảnh`** (thực tế 0,07–0,09). Ghi rõ khi báo cáo, không được viết "đạt KPI".
+
+---
+
+## 6. KIỂM THỬ TỰ ĐỘNG
+
+`tests/test_contracts.py` (chạy ~1 giây, không cần ảnh thật): kiểm tra hợp đồng API và toàn vẹn dữ liệu — hình dạng/dtype mask nhị phân, tôn trọng mask vùng hợp lệ, IoU, công thức precision/recall/F1, ngưỡng `min_area`, và đếm cặp trong manifest.
+
+```
+python tests/test_contracts.py     ->  6 PASS, 0 SKIP, 0 FAIL
+```
+
+Chất lượng mô hình không đo bằng unit test mà bằng bộ 693 cặp cố định, lưu CSV để tái lập.

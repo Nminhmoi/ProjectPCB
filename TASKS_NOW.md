@@ -88,8 +88,8 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 - [x] #3 `extract_features()`
 - [x] #4 `build_classifier_dataset.py`
 - [x] #5 `exp_classify.py`
-- [ ] #7 `verify_defaults.py`
-- [ ] #11 `tests/test_contracts.py`
+- [x] #7 `verify_defaults.py`
+- [x] #11 `tests/test_contracts.py`
 
 **Hinh**
 - [x] #2 trực quan hoá — đặt tên `module_visualization.py` (khác `module_visualize.py` trong bảng)
