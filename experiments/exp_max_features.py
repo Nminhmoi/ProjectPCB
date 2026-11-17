@@ -373,7 +373,8 @@ def print_summary(summary: List[Dict[str, object]], recommended: Optional[int]) 
     if worst > 5:
         n5 = min(int(s["pairs_over_5px"]) for s in summary)
         print(f"[CẢNH BÁO] Có cặp lệch tới {worst:.1f} px; ít nhất {n5} cặp lệch > 5 px ở MỌI mức "
-              "-> lỗi kiểm tra homography, không phải thiếu feature (xem P0.1 / exp_alignment_check.py).")
+              "-> không phải thiếu feature. Với CSV cũ (trước khi corner_error dùng H_pre) đây là "
+              "các cặp ảnh test lệch sẵn so với template (CODE_REVIEW.md §2.2), H vẫn đúng.")
 
 
 def plot_study(summary: List[Dict[str, object]], output_path: Path,

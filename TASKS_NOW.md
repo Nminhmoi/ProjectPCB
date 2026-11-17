@@ -97,8 +97,8 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 - [ ] #10 `evaluate_metrics.py`
 
 **Nam Anh**
-- [ ] #8 test SIFT fallback
-- [ ] #9 rà §2.1 / 2.2 / 2.4 + script vẽ chart
+- [x] #8 test SIFT fallback
+- [x] #9 rà §2.1 / 2.2 / 2.4 + script vẽ chart
 
 ---
 
