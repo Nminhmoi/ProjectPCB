@@ -65,5 +65,29 @@ recall ≥ 95% theo báo cáo buổi thông, chấp nhận precision resample gi
 
 Đã áp dụng: `DEFAULT_THRESHOLD_FLOOR = 20`, `DEFAULT_OPEN_KSIZE = 2`
 (`DEFAULT_HYSTERESIS_LOW = None`, `DEFAULT_MIN_AREA = 20` giữ nguyên).
-Kiểm chứng bằng `experiments/verify_defaults.py`; sau đó chạy lại
-`build_classifier_dataset.py` + `exp_classify.py` vì bbox đổi theo.
+
+### Kiểm chứng (`experiments/verify_defaults.py`)
+
+Chạy lại đúng cấu hình này trên **693 cặp × 2 điều kiện** (692 s), so từng chỉ số
+với `detection_params_summary.csv`, dung sai 2e-5:
+
+```
+=== clean: KHOP ===      n_pred 3078 | recall 0,99627 | precision 0,98278 | F1 0,98948
+                         FP/ảnh 0,07648 | sót toàn bộ 0 | recall_weak 0,98890
+=== resample: KHOP ===   n_pred 3089 | recall 0,99492 | precision 0,98219 | F1 0,98852
+                         FP/ảnh 0,07937 | sót toàn bộ 0 | recall_weak 0,98587
+KET QUA: PASS - tai lap dung so trong CSV o ca 2 dieu kien.
+```
+
+Mọi chỉ số lệch 0,00000. Đây là cổng chặn hồi quy: đổi `DEFAULT_*` mà quên chạy
+lại lưới thì script báo fail ngay.
+
+Sau khi chốt đã chạy lại `build_classifier_dataset.py` (3.011 → **3.078 blob**)
+và `exp_classify.py`: RF 7 lớp macro F1 **0,796** (trước 0,767), 6 lớp **0,936**
+(trước 0,906). Số chi tiết ở `PROGRESS_REPORT.md` §5.
+
+Lưu ý: `detection_params_summary.csv` vẫn đánh dấu `is_baseline=True` ở dòng
+`floor30_open3_single_area20` — đó là cấu hình gốc **lúc chạy lưới**. Nếu chạy lại
+`exp_detection_params.py`, `BASELINE` sẽ tự đổi thành `floor20_open2` theo
+`DEFAULT_*` mới; CSV đã lưu không bị sửa.
+
