@@ -2,6 +2,7 @@ opencv-python
 numpy
 matplotlib
 scikit-learn
+PySide6
 
 # AKAZE (tùy chọn, chỉ cần cho experiments/exp_feature_matching.py):
 #   py -3.14 -m venv .venv

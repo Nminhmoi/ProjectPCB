@@ -92,8 +92,8 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 - [ ] #11 `tests/test_contracts.py`
 
 **Hinh**
-- [ ] #2 `module_visualize.py`
-- [ ] #6 `gui_app.py`
+- [x] #2 trực quan hoá — đặt tên `module_visualization.py` (khác `module_visualize.py` trong bảng)
+- [x] #6 GUI — dùng **PySide6** + gói `GUI/gui_app.py`, khởi động bằng `run_gui.py` (không phải tkinter)
 - [ ] #10 `evaluate_metrics.py`
 
 **Nam Anh**
