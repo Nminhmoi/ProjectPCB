@@ -94,7 +94,7 @@ Và `main.py:process_pair()` nên thêm tham số tuỳ chọn `extra_out: dict 
 **Hinh**
 - [x] #2 trực quan hoá — đặt tên `module_visualization.py` (khác `module_visualize.py` trong bảng)
 - [x] #6 GUI — dùng **PySide6** + gói `GUI/gui_app.py`, khởi động bằng `run_gui.py` (không phải tkinter)
-- [ ] #10 `evaluate_metrics.py`
+- [x] #10 `evaluate_metrics.py`
 
 **Nam Anh**
 - [x] #8 test SIFT fallback
