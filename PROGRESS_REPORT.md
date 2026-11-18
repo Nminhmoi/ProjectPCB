@@ -273,14 +273,12 @@ Trên lưới 60 cấu hình × 693 cặp × 2 điều kiện (`clean` = ảnh g
 * `experiments/verify_defaults.py` chạy lại đúng cấu hình này trên 693 cặp × 2 điều kiện và khớp từng chỉ số với `experiments/detection_params_summary.csv` → chốt chặn hồi quy.
 * **Không cấu hình nào trong 60 cấu hình đạt KPI `false_blobs ≤ 0,05 đốm/ảnh`** (thực tế 0,07–0,09). Ghi rõ khi báo cáo, không được viết "đạt KPI".
 
----
+### 5.7. Kiểm tra hợp đồng API (không phải kiểm thử chất lượng)
 
-## 6. KIỂM THỬ TỰ ĐỘNG
-
-`tests/test_contracts.py` (chạy ~1 giây, không cần ảnh thật): kiểm tra hợp đồng API và toàn vẹn dữ liệu — hình dạng/dtype mask nhị phân, tôn trọng mask vùng hợp lệ, IoU, công thức precision/recall/F1, ngưỡng `min_area`, và đếm cặp trong manifest.
+`tests/test_contracts.py` chạy ~1 giây, không cần ảnh thật: chỉ kiểm tra *hợp đồng API* — shape/dtype mask nhị phân, tôn trọng mask vùng hợp lệ, IoU, công thức precision/recall/F1, ngưỡng `min_area`, đếm cặp trong manifest. **Không** đo chất lượng phát hiện hay phân loại.
 
 ```
 python tests/test_contracts.py     ->  6 PASS, 0 SKIP, 0 FAIL
 ```
 
-Chất lượng mô hình không đo bằng unit test mà bằng bộ 693 cặp cố định, lưu CSV để tái lập.
+Đây là lưới an toàn hồi quy, không phải bằng chứng chất lượng. Nó từng bắt được một ca biên thật: `binarize_difference(border=0)` xoá sạch mask vì `diff_binary[-0:, :]` tương đương cả ảnh (production dùng `border=8` nên số liệu 693 cặp không đổi). Chất lượng mô hình đo bằng bộ 693 cặp cố định và `verify_defaults.py`, lưu CSV để tái lập.
