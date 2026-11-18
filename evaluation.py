@@ -19,7 +19,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
-Box = Tuple[int, int, int, int]  # (x, y, w, h)
+Box = Tuple[int, int, int, int]  # toạ độ (x, y, w, h)
 
 # Quy ước đo, in kèm mọi bảng tổng hợp (P2.2)
 MATCH_RULE_TOUCH = "touch_tol5"

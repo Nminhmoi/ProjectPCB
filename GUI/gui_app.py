@@ -67,8 +67,8 @@ from module_preprocess import (DEFAULT_DETECTOR, DEFAULT_FALLBACKS,
                                binarize_difference, difference_map,
                                is_detector_available, warp_valid_mask)
 
-# Phan loai loi la tuy chon (module_classification.py chua co trong repo).
-try:  # pragma: no cover - phu thuoc vao tien do cua nhom
+# Phân loại là tuỳ chọn: thiếu module/hàm thì bỏ qua bước này.
+try:  # pragma: no cover - phụ thuộc tiến độ của nhóm
     from module_classification import classify_defects as _classify_defects
 except Exception:  # noqa: BLE001
     _classify_defects = None
@@ -78,7 +78,7 @@ GREEN = (0, 200, 0)
 YELLOW = (0, 215, 255)
 IMG_FILTER = "Ảnh (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.JPG *.PNG)"
 
-# 1. LOI PIPELINE (khong phu thuoc Qt, de test / goi tu noi khac)
+# Lõi pipeline (không phụ thuộc Qt, dùng được cho test)
 def fit_width(image: np.ndarray, max_width: int) -> tuple[np.ndarray, float]:
     h, w = image.shape[:2]
     scale = min(1.0, max_width / float(w))
@@ -104,7 +104,7 @@ def draw_matches(img_test, img_template, stats, max_lines=150, max_width=1100):
         for i in idx:
             p1 = (int(pts_t[i][0] * s1), int(pts_t[i][1] * s1))
             p2 = (int(pts_m[i][0] * s2) + left.shape[1], int(pts_m[i][1] * s2))
-            cv2.line(canvas, p1, p2, (0, 230, 0), 1, cv2.LINE_AA)   # inlier = xanh la
+            cv2.line(canvas, p1, p2, (0, 230, 0), 1, cv2.LINE_AA)   # inlier = xanh lá
             cv2.circle(canvas, p1, 3, (0, 230, 0), -1)
             cv2.circle(canvas, p2, 3, (0, 230, 0), -1)
 
@@ -238,7 +238,7 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
     say("Hoàn tất.")
     return res
 
-# 2. WORKER THREAD
+# Luồng chạy nền
 class InspectWorker(QThread):
     progress = Signal(str)
     done = Signal(object)
@@ -260,7 +260,7 @@ class InspectWorker(QThread):
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{exc}\n\n{traceback.format_exc()}")
 
-# 3. WIDGETS
+# Widget hiển thị
 def bgr_to_pixmap(img: np.ndarray) -> QPixmap:
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -427,7 +427,7 @@ class PathPicker(QWidget):
         self.thumb.clear()
         self.thumb.setText("— chưa chọn —")
 
-# 4. CUA SO CHINH
+# Cửa sổ chính
 class MainWindow(QMainWindow):
     def __init__(self, data_dir="data"):
         super().__init__()
@@ -587,7 +587,7 @@ class MainWindow(QMainWindow):
     def _build_tabs(self):
         self.tabs = QTabWidget()
 
-        # 1. dau vao
+        # tab ảnh đầu vào
         sp = QSplitter(Qt.Orientation.Horizontal)
         self.v_template = TitledViewer("Ảnh MẪU (Template)")
         self.v_test = TitledViewer("Ảnh TEST")
@@ -595,11 +595,11 @@ class MainWindow(QMainWindow):
         sp.addWidget(self.v_test)
         self.tabs.addTab(sp, "1 · Ảnh đầu vào")
 
-        # 2. khop dac trung
+        # tab khớp đặc trưng
         self.v_matches = TitledViewer("Các cặp đặc trưng khớp đúng (inlier, xanh lá) — test ⟷ mẫu")
         self.tabs.addTab(self.v_matches, "2 · Khớp đặc trưng")
 
-        # 3. can chinh
+        # tab độ khít sau căn chỉnh
         w3 = QWidget()
         l3 = QVBoxLayout(w3)
         l3.setContentsMargins(0, 0, 0, 0)
@@ -622,7 +622,7 @@ class MainWindow(QMainWindow):
         l3.addWidget(self.v_align, 1)
         self.tabs.addTab(w3, "3 · Độ khít sau căn chỉnh")
 
-        # 4. vi sai
+        # tab vi sai
         sp4 = QSplitter(Qt.Orientation.Horizontal)
         self.v_diff = TitledViewer("Bản đồ vi sai (heatmap)")
         self.v_mask = TitledViewer("Mặt nạ nhị phân (Otsu + Opening)")
@@ -630,7 +630,7 @@ class MainWindow(QMainWindow):
         sp4.addWidget(self.v_mask)
         self.tabs.addTab(sp4, "4 · Vi sai && Nhị phân")
 
-        # 5. ket qua
+        # tab kết quả
         w5 = QWidget()
         l5 = QVBoxLayout(w5)
         l5.setContentsMargins(0, 0, 0, 0)
@@ -647,7 +647,7 @@ class MainWindow(QMainWindow):
         l5.addWidget(self.v_result, 1)
         self.tabs.addTab(w5, "5 · Kết quả (khung lỗi)")
 
-        # 6. crops
+        # tab ảnh cắt
         self.list_crops = QListWidget()
         self.list_crops.setViewMode(QListView.ViewMode.IconMode)
         self.list_crops.setIconSize(QSize(140, 140))
@@ -744,7 +744,7 @@ class MainWindow(QMainWindow):
             f"{pair['pair_id']} · lớp {pair['class_name']} · {len(self.gt_boxes)} lỗi Ground Truth")
 
     def _manual_changed(self):
-        # chon tay -> khong con Ground Truth cua cap dataset
+        # chọn tay thì không còn Ground Truth của cặp dataset
         self.gt_boxes = []
 
     # chạy pipeline
@@ -800,12 +800,12 @@ class MainWindow(QMainWindow):
             self.v_matches.viewer.set_image(res["matches_img"])
         else:
             self.v_matches.viewer.set_message("Căn chỉnh thất bại nên không có cặp đặc trưng để vẽ")
-        # ban do vi sai -> heatmap (chuan hoa theo percentile de de nhin)
+        # bản đồ vi sai → heatmap, chuẩn hoá theo percentile cho dễ nhìn
         hi = max(float(np.percentile(res["diff"], 99.9)), 1.0)
         norm = np.clip(res["diff"].astype(np.float32) * (255.0 / hi), 0, 255).astype(np.uint8)
         self.v_diff.viewer.set_image(cv2.applyColorMap(norm, cv2.COLORMAP_INFERNO))
         self.v_mask.viewer.set_image(res["mask"])
-        # anh phu mo: thu nho de keo thanh truot muot
+        # ảnh phủ mờ: thu nhỏ để kéo thanh trượt mượt
         self._blend_t, s = fit_width(res["template"], 1600)
         self._blend_a = cv2.resize(res["aligned"], (self._blend_t.shape[1], self._blend_t.shape[0]),
                                    interpolation=cv2.INTER_AREA)
@@ -939,7 +939,7 @@ class MainWindow(QMainWindow):
         r = self.result
 
         def write(fn, img):
-            ok, buf = cv2.imencode(Path(fn).suffix, img)   # an toan voi duong dan Unicode
+            ok, buf = cv2.imencode(Path(fn).suffix, img)   # an toàn với đường dẫn Unicode
             if ok:
                 buf.tofile(str(out / fn))
 
@@ -961,7 +961,7 @@ class MainWindow(QMainWindow):
                 wr.writerow([i, x, y, w, h, r["labels"][i - 1] if r["labels"] else ""])
         self.statusBar().showMessage(f"Đã lưu kết quả vào {out}")
 
-# 5. THEME TOI (Fusion + palette)
+# Theme tối (Fusion + palette)
 def apply_dark_theme(app: QApplication):
     app.setStyle("Fusion")
     p = QPalette()
