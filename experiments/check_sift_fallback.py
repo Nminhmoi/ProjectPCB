@@ -226,7 +226,7 @@ def main(argv=None) -> int:
         for r in rows:
             writer.writerow({k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()})
 
-    # ---------------- Ghi chú markdown ----------------
+    # Ghi chú markdown
     n = len(rows)
     extra = [float(r["forced_time_ms"]) - float(r["default_time_ms"]) for r in rows]
     same_det = sum(1 for r in rows if r.get("orb_gt_hit") == r.get("sift_gt_hit"))

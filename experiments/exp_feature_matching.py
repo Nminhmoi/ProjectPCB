@@ -99,10 +99,7 @@ COND: Dict[str, object] = {"synthetic_warp": True, "max_features": DEFAULT_MAX_F
                            "min_ncc": None}  # điền trong compare_detectors()
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-
-# ---------------------------------------------------------------------
-# 1. Kiểm tra detector khả dụng
-# ---------------------------------------------------------------------
+# Kiểm tra detector khả dụng
 def select_detectors(names: List[str]) -> List[str]:
     """Lọc các detector chạy được với OpenCV hiện tại (AKAZE cần contrib)."""
     selected = []
@@ -119,10 +116,7 @@ def select_detectors(names: List[str]) -> List[str]:
         raise SystemExit("[LỖI] Không có detector nào chạy được.")
     return selected
 
-
-# ---------------------------------------------------------------------
-# 2. Tiện ích hình học / nhãn
-# ---------------------------------------------------------------------
+# Tiện ích hình học và nhãn
 def random_homography(
     width: int, height: int, rng: np.random.Generator,
     max_angle: float, max_shift: float, max_scale: float,
@@ -137,10 +131,7 @@ def random_homography(
     H[1, 2] += ty
     return H
 
-
-# ---------------------------------------------------------------------
-# 3. Trực quan hóa: đường nối cặp đặc trưng + ảnh bàn cờ
-# ---------------------------------------------------------------------
+# Vẽ đường nối đặc trưng và ảnh bàn cờ
 def _fit_width(image: np.ndarray, max_width: int) -> Tuple[np.ndarray, float]:
     h, w = image.shape[:2]
     scale = min(1.0, max_width / float(w))
@@ -196,10 +187,7 @@ def checkerboard(img_template: np.ndarray, img_aligned: np.ndarray, tiles: int =
         cv2.line(out, (0, int(i * step_y)), (w, int(i * step_y)), (0, 0, 255), 1)
     return out
 
-
-# ---------------------------------------------------------------------
-# 4. Hàm so sánh chính
-# ---------------------------------------------------------------------
+# So sánh ba detector trên cùng một cặp ảnh
 def evaluate_pair(
     pair: dict, detectors: List[str],
     args: argparse.Namespace, vis_dir: Optional[Path],

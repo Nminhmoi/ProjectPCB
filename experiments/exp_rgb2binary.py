@@ -59,7 +59,7 @@ import matplotlib.pyplot as plt
 Binarizer = Callable[[np.ndarray], Tuple[np.ndarray, np.ndarray]]
 
 
-# 1. Các phương pháp nhị phân hóa
+# Các phương pháp nhị phân hoá
 def _otsu(blurred: np.ndarray) -> np.ndarray:
     """Ngưỡng Otsu, coi pixel sáng hơn ngưỡng là foreground (đồng)."""
     _, mask = cv2.threshold(
@@ -115,7 +115,7 @@ METHODS: Dict[str, Binarizer] = {
 }
 
 
-# 2. Chỉ số đánh giá
+# Chỉ số đánh giá
 def otsu_separability(channel: np.ndarray) -> float:
     """Tính eta = sigma_between^2 / sigma_total^2 từ histogram.
 
@@ -216,7 +216,7 @@ def evaluate_pair(
         "illum_iou": mask_iou(mask, mask_shaded),
     }
 
-# 3. Xuất CSV, biểu đồ, ảnh so sánh trực quan
+# Xuất CSV, biểu đồ, ảnh so sánh trực quan
 def write_csv(rows: List[Dict[str, object]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
@@ -385,7 +385,7 @@ def print_summary(
     print("-" * 92)
 
 
-# 5. Entry point
+# Điểm vào CLI
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Khảo sát RGB -> Binary trên các cặp ảnh PCB."

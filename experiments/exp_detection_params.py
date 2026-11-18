@@ -115,7 +115,7 @@ VALID_ERODE = 3
 BASELINE = (DEFAULT_THRESHOLD_FLOOR, DEFAULT_OPEN_KSIZE,
             float(DEFAULT_HYSTERESIS_LOW or 0.0), DEFAULT_MIN_AREA)
 KPI = {"recall": 0.97, "f1": 0.975, "weak_recall": 0.96, "false_blobs": 0.05}
-Config = Tuple[int, int, float, int]  # (floor, open, hysteresis, min_area)
+Config = Tuple[int, int, float, int]  # thứ tự: (floor, open, hysteresis, min_area)
 
 
 def config_name(cfg: Config) -> str:
@@ -123,10 +123,7 @@ def config_name(cfg: Config) -> str:
     return (f"floor{floor}_open{open_k}_" + (f"hyst{hyst:g}" if hyst else "single")
             + f"_area{min_area}")
 
-
-# ---------------------------------------------------------------------
 # Chuẩn bị bản đồ vi sai cho 1 cặp ở 1 điều kiện
-# ---------------------------------------------------------------------
 def prepare(pair: Dict[str, object], condition: str, args: argparse.Namespace):
     """Trả về (template, aligned, diff, valid_mask hoặc None, align_info)."""
     template = load_image(Path(pair["template_path"]))
@@ -166,10 +163,7 @@ def detect(diff: np.ndarray, valid: Optional[np.ndarray], cfg: Config):
                                hysteresis_low=hyst if hyst else None, valid=valid)
     return mask, extract_bounding_boxes(mask, min_area=min_area)
 
-
-# ---------------------------------------------------------------------
 # Chẩn đoán lỗi bị sót: mất ở bước nào?
-# ---------------------------------------------------------------------
 def diagnose_missed(diff: np.ndarray, valid: Optional[np.ndarray], gt_boxes, cfg: Config,
                     boxes) -> List[Dict[str, object]]:
     floor, open_k, hyst, min_area = cfg
@@ -212,10 +206,7 @@ def diagnose_missed(diff: np.ndarray, valid: Optional[np.ndarray], gt_boxes, cfg
                     "largest_blob": largest})
     return out
 
-
-# ---------------------------------------------------------------------
-# Ảnh kiểm tra trực quan
-# ---------------------------------------------------------------------
+# Lưu ảnh chẩn đoán
 def save_inspect(path: Path, template, aligned, diff, gt_boxes, masks: Dict[str, np.ndarray],
                  boxes_by: Dict[str, list], pad: int = 30, max_items: int = 6) -> None:
     tiles = []
@@ -254,10 +245,7 @@ def save_inspect(path: Path, template, aligned, diff, gt_boxes, masks: Dict[str,
         path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(path), np.vstack(tiles))
 
-
-# ---------------------------------------------------------------------
 # Tổng hợp
-# ---------------------------------------------------------------------
 def summarize(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
     groups: Dict[Tuple[str, str], List[Dict[str, object]]] = defaultdict(list)
     for r in rows:
@@ -404,10 +392,7 @@ def plot(summary: List[Dict[str, object]], path: Path, best: Optional[str]) -> N
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
-
-# ---------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------
+# Điểm vào CLI
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Dò tham số nhị phân hóa + F1@IoU (P0.3, P1.1, P1.2).")
     p.add_argument("--data-dir", type=Path, default=Path("data"))

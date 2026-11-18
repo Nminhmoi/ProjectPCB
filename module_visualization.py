@@ -33,10 +33,6 @@ def _ensure_color(image: np.ndarray) -> np.ndarray:
         return cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
     return image.copy()
 
-
-# =====================================================================
-# 1. Vẽ đường nối điểm khớp đặc trưng
-# =====================================================================
 def draw_feature_matches(
     img_test: np.ndarray,
     img_template: np.ndarray,
@@ -126,10 +122,6 @@ def draw_feature_matches(
 
     return np.vstack([header, canvas])
 
-
-# =====================================================================
-# 2. Ảnh bàn cờ (Checkerboard) & Phủ mờ (Alpha Overlay)
-# =====================================================================
 def draw_checkerboard(
     img_template: np.ndarray,
     img_aligned: np.ndarray,
@@ -237,7 +229,7 @@ def draw_homography_verification(
         canvas[:, :w] = board
         canvas[:, w:] = overlay
 
-        # Thêm nhãn phụ đề cho 2 nửa
+        # Nhãn phụ cho hai nửa ảnh
         banner_h = 32
         header = np.zeros((banner_h, w * 2, 3), dtype=np.uint8)
         cv2.putText(
@@ -253,10 +245,6 @@ def draw_homography_verification(
     result, _ = _fit_width(result, max_width)
     return result
 
-
-# =====================================================================
-# 3. Đóng khung kết quả khuyết tật (Bounding Boxes)
-# =====================================================================
 def draw_results(
     img_test: np.ndarray,
     boxes: list,
@@ -296,14 +284,14 @@ def draw_results(
         label_y = max(y - 5, th + 5)
         label_x = max(0, x)
 
-        # Nền nhãn đỏ
+        # Nền nhãn
         cv2.rectangle(
             img_annotated,
             (label_x, label_y - th - 2),
             (label_x + tw + 4, label_y + baseline - 2),
             color, -1
         )
-        # Chữ nhãn trắng
+        # Chữ trắng trên nền nhãn
         cv2.putText(
             img_annotated, label_text, (label_x + 2, label_y - 2),
             font, font_scale, (255, 255, 255), font_thick, cv2.LINE_AA
@@ -311,10 +299,6 @@ def draw_results(
 
     return img_annotated
 
-
-# =====================================================================
-# DEMO CHẠY THỬ ĐỘC LẬP (CLI TEST)
-# =====================================================================
 if __name__ == "__main__":
     import os
     from module_preprocess import align_images_with_stats
@@ -325,12 +309,12 @@ if __name__ == "__main__":
 
     os.makedirs("results", exist_ok=True)
 
-    # 1. Tạo cặp ảnh mô phỏng bo mạch PCB
+    # Tạo cặp ảnh PCB mô phỏng
     h, w = 600, 800
     template = np.full((h, w, 3), (30, 90, 30), dtype=np.uint8)
     rng = np.random.default_rng(42)
 
-    # Vẽ các pad linh kiện và đường mạch để tạo keypoints đặc trưng phong phú
+    # Pad linh kiện + đường mạch để có nhiều keypoint
     for _ in range(120):
         x = int(rng.integers(50, w - 50))
         y = int(rng.integers(50, h - 50))
@@ -342,12 +326,12 @@ if __name__ == "__main__":
     for i in range(10):
         cv2.line(template, (50, 50 + i * 50), (w - 50, 50 + i * 50), (0, 220, 240), 2)
 
-    # Test: Bị nắn xoay lệch 1.5 độ và dịch (dx=10, dy=5) + có vết khuyết tật
+    # Ảnh test: xoay 1,5° + dịch (10, 5) + một vết lỗi
     M = cv2.getRotationMatrix2D((w // 2, h // 2), 1.5, 1.0)
     M[0, 2] += 10.0
     M[1, 2] += 5.0
     test = cv2.warpAffine(template, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-    # Thêm 1 vết hở mạch lỗi
+    # Thêm một vết hở mạch
     cv2.rectangle(test, (280, 190), (330, 210), (30, 90, 30), -1)
 
     print("1. Đang căn chỉnh ảnh bằng ORB & RANSAC Homography...")
@@ -356,19 +340,19 @@ if __name__ == "__main__":
           f"Reproj Error: {stats['reprojection_error']:.2f}px")
 
     print("\n2. Đang tạo các ảnh trực quan hóa:")
-    # A. Đường nối điểm khớp đặc trưng
+    # Đường nối điểm khớp đặc trưng
     matches_vis = draw_feature_matches(test, template, stats)
     p_matches = "results/demo_matches.jpg"
     cv2.imwrite(p_matches, matches_vis)
     print(f"   [✓] Đường nối đặc trưng : {p_matches}")
 
-    # B. Kiểm định căn chỉnh Homography (Checkerboard & Alpha Overlay)
+    # Kiểm định căn chỉnh Homography (bàn cờ + phủ mờ)
     verify_vis = draw_homography_verification(template, aligned, mode="both", tiles=8)
     p_verify = "results/demo_verification.jpg"
     cv2.imwrite(p_verify, verify_vis)
     print(f"   [✓] Kiểm định căn chỉnh : {p_verify}")
 
-    # C. Đóng khung kết quả phát hiện lỗi
+    # Đóng khung kết quả phát hiện lỗi
     demo_boxes = [(240, 195, 40, 15)]
     results_vis = draw_results(aligned, demo_boxes, labels=["Open Circuit"])
     p_results = "results/demo_results.jpg"

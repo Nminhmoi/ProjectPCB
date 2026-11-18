@@ -48,10 +48,7 @@ def parse_args() -> argparse.Namespace:
                         help="Oversample lớp thiểu số khi train (mặc định: tắt).")
     return parser.parse_args()
 
-
-# ---------------------------------------------------------------------
-# Dữ liệu
-# ---------------------------------------------------------------------
+# Đọc bộ dữ liệu
 def load_dataset(path: Path, limit_rows=None, drop_background=False):
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -101,10 +98,7 @@ def oversample(X: np.ndarray, y: np.ndarray, rng: np.random.Generator):
             parts_y.append(np.full(len(extra), name, dtype=y.dtype))
     return np.vstack(parts_x), np.concatenate(parts_y)
 
-
-# ---------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------
+# Hai họ mô hình: SVM (RBF) và Random Forest
 def train_svm(X, y, c_value: float, gamma: float):
     svm = cv2.ml.SVM_create()
     svm.setType(cv2.ml.SVM_C_SVC)
@@ -131,10 +125,7 @@ def predict_index(model, X) -> np.ndarray:
     values = output[1] if isinstance(output, tuple) else output
     return np.rint(np.asarray(values).ravel()).astype(int)
 
-
-# ---------------------------------------------------------------------
-# Chỉ số
-# ---------------------------------------------------------------------
+# Tính chỉ số đánh giá
 def confusion_matrix(y_true_idx, y_pred_idx, n_classes: int) -> np.ndarray:
     matrix = np.zeros((n_classes, n_classes), dtype=int)
     for truth, pred in zip(y_true_idx, y_pred_idx):
@@ -200,10 +191,7 @@ def save_confusion_png(matrix, names, path: Path, title: str) -> None:
     plt.close(fig)
     print(f"Confusion matrix: {path}")
 
-
-# ---------------------------------------------------------------------
-# Grid + CV
-# ---------------------------------------------------------------------
+# Lưới cấu hình và chia fold
 def build_configs(X, trees: int = 120) -> list:
     gamma_auto = 1.0 / (X.shape[1] * float(np.var(X)) or 1.0)
     configs = []
@@ -291,7 +279,7 @@ def main() -> int:
     save_confusion_png(best["matrix"], names, Path(args.charts_dir) / "confusion_matrix.png",
                        f"{best['config']['name']} - macro F1 {best['macro_f1']:.3f}")
 
-    # Model cuoi: train tren toan bo du lieu, luu kem scaler de classify dung lai.
+    # Mô hình cuối: train trên toàn bộ dữ liệu, lưu kèm scaler để classify dùng lại.
     X_all, _, scaler = standardize(X, X)
     if args.balance:
         X_all, y_train_all = oversample(X_all, y_idx, rng)

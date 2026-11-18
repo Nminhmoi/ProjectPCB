@@ -78,10 +78,7 @@ GREEN = (0, 200, 0)
 YELLOW = (0, 215, 255)
 IMG_FILTER = "Ảnh (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.JPG *.PNG)"
 
-
-# =====================================================================
 # 1. LOI PIPELINE (khong phu thuoc Qt, de test / goi tu noi khac)
-# =====================================================================
 def fit_width(image: np.ndarray, max_width: int) -> tuple[np.ndarray, float]:
     h, w = image.shape[:2]
     scale = min(1.0, max_width / float(w))
@@ -170,7 +167,7 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
     warnings = []
     res = {"template": template, "test": test, "gt_boxes": list(gt_boxes or [])}
 
-    # --- Buoc 1-2: can chinh (detector + RANSAC Homography, kiem chung NCC)
+    # Bước 1-2: căn chỉnh ảnh (detector + RANSAC Homography), kiểm chứng bằng NCC
     say("Căn chỉnh ảnh (đặc trưng + Homography)...")
     fallbacks = [(d, params["max_features"]) for d in params["fallbacks"]]
     min_ncc = params["min_ncc"] if params["verify"] else None
@@ -194,7 +191,7 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
     res["stats"] = stats
     res["aligned_ok"] = aligned_ok
 
-    # --- Buoc 3: truc quan hoa khop dac trung + do khit
+    # Bước 3: vẽ khớp đặc trưng + kiểm tra độ khít
     say("Dựng hình khớp đặc trưng / bàn cờ...")
     if aligned_ok and stats.get("inlier_pts_test") is not None:
         res["matches_img"] = draw_matches(test, template, stats)
@@ -202,7 +199,7 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
         res["matches_img"] = None
     res["checker_img"] = checkerboard(template, aligned)
 
-    # --- Buoc 4-5: tru vi sai, nhi phan hoa Otsu + morphology
+    # Bước 4-5: trừ vi sai, nhị phân hoá Otsu + morphology
     say("Trừ vi sai và nhị phân hóa...")
     t2 = time.perf_counter()
     valid = None
@@ -214,14 +211,14 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
         open_ksize=params["open_ksize"], hysteresis_low=None, valid=valid)
     res["diff"], res["mask"] = diff, mask
 
-    # --- Buoc 6: contours -> bounding boxes
+    # Bước 6: contour → bounding box
     say("Định vị đốm lỗi...")
     boxes = extract_bounding_boxes(mask, min_area=params["min_area"])
     res["boxes"] = boxes
     res["patches"] = crop_patches(aligned, boxes, padding=5)
     stats["wall_detect_ms"] = (time.perf_counter() - t2) * 1000.0
 
-    # --- Buoc 7: phan loai (tuy chon)
+    # Bước 7: phân loại (tuỳ chọn)
     labels = None
     if _classify_defects is not None and boxes:
         say("Phân loại khuyết tật...")
@@ -231,7 +228,7 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
             warnings.append(f"Phân loại lỗi thất bại: {exc}")
     res["labels"] = labels
 
-    # --- Buoc 8: anh ket qua + danh gia voi Ground Truth (neu co)
+    # Bước 8: ảnh kết quả + đánh giá với Ground Truth (nếu có)
     res["result_img"] = annotate(aligned, boxes, labels)
     res["result_gt_img"] = annotate(aligned, boxes, labels, gt_boxes=res["gt_boxes"])
     res["counts"] = detection_counts(boxes, res["gt_boxes"]) if res["gt_boxes"] else None
@@ -241,10 +238,7 @@ def run_inspection(template, test, params, gt_boxes=None, progress=None):
     say("Hoàn tất.")
     return res
 
-
-# =====================================================================
 # 2. WORKER THREAD
-# =====================================================================
 class InspectWorker(QThread):
     progress = Signal(str)
     done = Signal(object)
@@ -266,10 +260,7 @@ class InspectWorker(QThread):
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{exc}\n\n{traceback.format_exc()}")
 
-
-# =====================================================================
 # 3. WIDGETS
-# =====================================================================
 def bgr_to_pixmap(img: np.ndarray) -> QPixmap:
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -436,10 +427,7 @@ class PathPicker(QWidget):
         self.thumb.clear()
         self.thumb.setText("— chưa chọn —")
 
-
-# =====================================================================
 # 4. CUA SO CHINH
-# =====================================================================
 class MainWindow(QMainWindow):
     def __init__(self, data_dir="data"):
         super().__init__()
@@ -452,7 +440,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self.load_dataset(data_dir, silent=True)
 
-    # ------------------------------------------------------------ UI
+    # Giao diện
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -490,7 +478,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(title)
         lay.addWidget(sub)
 
-        # --- dataset
+        # chọn nhanh từ dataset
         g_ds = QGroupBox("Chọn nhanh từ dataset")
         f = QVBoxLayout(g_ds)
         f.setContentsMargins(6, 6, 6, 6)
@@ -515,7 +503,7 @@ class MainWindow(QMainWindow):
         f.addWidget(self.lbl_ds)
         lay.addWidget(g_ds)
 
-        # --- chon anh thu cong
+        # chọn ảnh thủ công
         g_in = QGroupBox("Ảnh đầu vào")
         v = QVBoxLayout(g_in)
         v.setContentsMargins(0, 4, 0, 4)
@@ -527,7 +515,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.pick_test)
         lay.addWidget(g_in)
 
-        # --- tham so
+        # tham số
         g_p = QGroupBox("Tham số (mặc định = đã chốt)")
         form = QFormLayout(g_p)
         form.setContentsMargins(6, 6, 6, 6)
@@ -570,7 +558,7 @@ class MainWindow(QMainWindow):
         form.addRow("Diện tích tối thiểu", self.sp_area)
         lay.addWidget(g_p)
 
-        # --- nut
+        # nút bấm
         self.btn_run = QPushButton("▶  KIỂM TRA")
         self.btn_run.setObjectName("primary")
         self.btn_run.setMinimumHeight(44)
@@ -698,7 +686,7 @@ class MainWindow(QMainWindow):
         sp.setSizes([520, 620])
         return sp
 
-    # ------------------------------------------------------- dataset
+    # nạp dataset
     def load_dataset(self, data_dir, silent=False):
         try:
             self.pairs = find_pairs(data_dir)
@@ -759,7 +747,7 @@ class MainWindow(QMainWindow):
         # chon tay -> khong con Ground Truth cua cap dataset
         self.gt_boxes = []
 
-    # ------------------------------------------------------------ run
+    # chạy pipeline
     def _params(self):
         det = self.cb_det.currentData()
         fb = []
@@ -835,7 +823,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(4)
         self.statusBar().showMessage(f"Hoàn tất trong {res['total_s']:.2f} s · {n} đốm lỗi.")
 
-    # ------------------------------------------------------- hien thi
+    # hiển thị
     def _set_verdict(self, text, color):
         self.verdict.setText(text)
         self.verdict.setStyleSheet(
@@ -938,7 +926,7 @@ class MainWindow(QMainWindow):
         self.table.selectRow(idx)
         self.table.blockSignals(False)
 
-    # ------------------------------------------------------------ luu
+    # lưu kết quả
     def save_results(self):
         if self.result is None:
             return
@@ -973,10 +961,7 @@ class MainWindow(QMainWindow):
                 wr.writerow([i, x, y, w, h, r["labels"][i - 1] if r["labels"] else ""])
         self.statusBar().showMessage(f"Đã lưu kết quả vào {out}")
 
-
-# =====================================================================
 # 5. THEME TOI (Fusion + palette)
-# =====================================================================
 def apply_dark_theme(app: QApplication):
     app.setStyle("Fusion")
     p = QPalette()

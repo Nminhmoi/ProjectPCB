@@ -96,7 +96,7 @@ DEFAULT_VALUES = [500, 1000, 2000, 3000, 5000, 7500, 10000]
 CURRENT_VALUE = DEFAULT_MAX_FEATURES  # giá trị đang dùng trong module_preprocess.align_images
 
 
-# 1. Căn chỉnh ORB có đo đạc — dùng chung module_preprocess
+# Căn chỉnh ORB có đo đạc, dùng chung module_preprocess
 def align_orb_measured(
     gray_template: np.ndarray,
     gray_test: np.ndarray,
@@ -140,7 +140,7 @@ def align_orb_measured(
     }
 
 
-# 2. Tiện ích: nắn lệch giả lập, sai số góc, so khớp bbox
+# Tiện ích: nắn lệch giả lập, sai số góc, so khớp bbox
 def random_homography(
     width: int, height: int, rng: np.random.Generator,
     max_angle: float, max_shift: float, max_scale: float,
@@ -185,7 +185,7 @@ def detection_counts(
     return count_detections(boxes, gt_boxes)
 
 
-# 3. Đánh giá 1 cặp ảnh với mọi giá trị max_features
+# Đánh giá một cặp ảnh với mọi giá trị max_features
 def evaluate_pair(pair: Dict[str, object], values: List[int],
                   args: argparse.Namespace) -> List[Dict[str, object]]:
     template = load_image(Path(pair["template_path"]))
@@ -233,7 +233,7 @@ def evaluate_pair(pair: Dict[str, object], values: List[int],
     return rows
 
 
-# 4. Tổng hợp, in bảng, vẽ biểu đồ
+# Tổng hợp, in bảng, vẽ biểu đồ
 def _finite(values) -> List[float]:
     return [float(v) for v in values if v is not None and not math.isnan(float(v))]
 
@@ -451,7 +451,7 @@ def plot_study(summary: List[Dict[str, object]], output_path: Path,
     plt.close(fig)
 
 
-# 5. Entry point
+# Điểm vào CLI
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Khảo sát max_features của ORB trên các cặp ảnh PCB.")
     parser.add_argument("--data-dir", type=Path, default=Path("data"),

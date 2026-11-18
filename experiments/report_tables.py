@@ -56,10 +56,7 @@ DETECTOR_ORDER = ["ORB", "SIFT", "AKAZE"]
 CURRENT_DETECTOR = "ORB"
 REPORT_MAX_FEATURES = [500, 1000, 2000, 3000, 5000, 10000]
 
-
-# ---------------------------------------------------------------------
 # Đọc CSV, ép kiểu
-# ---------------------------------------------------------------------
 _BOOL = {"true": True, "false": False}
 
 
@@ -101,10 +98,7 @@ def _finite(values) -> List[float]:
             out.append(f)
     return out
 
-
-# ---------------------------------------------------------------------
 # Bảng: cấu trúc chung
-# ---------------------------------------------------------------------
 class Table:
     """Một bảng markdown: header + các dòng; mỗi ô là chuỗi đã định dạng."""
 
@@ -156,10 +150,7 @@ def fmt(v, spec: str) -> str:
 def _b(text: str, on: bool) -> str:
     return f"**{text}**" if on else text
 
-
-# ---------------------------------------------------------------------
 # §2.1 — ORB vs SIFT vs AKAZE
-# ---------------------------------------------------------------------
 def table_21(exp_dir: Path) -> Optional[Table]:
     files = sorted(exp_dir.rglob("per_pair.csv"))
     rows = []
@@ -215,10 +206,7 @@ def table_21(exp_dir: Path) -> Optional[Table]:
     t.extra = {lab: {"pairs_over_1px": int(v[10]), "pairs": int(v[11])} for lab, v in zip(labels, values)}
     return t
 
-
-# ---------------------------------------------------------------------
 # §2.2 — max_features
-# ---------------------------------------------------------------------
 def table_22(exp_dir: Path, values_filter: Sequence[int]) -> Optional[Table]:
     path = exp_dir / "max_features_results.csv"
     if not path.is_file():
@@ -251,10 +239,7 @@ def table_22(exp_dir: Path, values_filter: Sequence[int]) -> Optional[Table]:
     t.summary = summary
     return t
 
-
-# ---------------------------------------------------------------------
 # §2.4 — Gaussian blur
-# ---------------------------------------------------------------------
 def table_24(exp_dir: Path) -> Optional[Table]:
     path = exp_dir / "blur_kernel_results.csv"
     if not path.is_file():
@@ -291,10 +276,7 @@ def table_24(exp_dir: Path) -> Optional[Table]:
     return Table("2.4", "Khảo sát kernel Gaussian blur", header, align, out_rows, keys,
                  str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"))
 
-
-# ---------------------------------------------------------------------
 # Đối chiếu / ghi đè PROGRESS_REPORT.md
-# ---------------------------------------------------------------------
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
 
@@ -382,8 +364,6 @@ def write_tables(tables: List[Table]) -> List[str]:
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return done
 
-
-# ---------------------------------------------------------------------
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sinh lại / đối chiếu bảng §2.1, §2.2, §2.4 từ CSV.")
     p.add_argument("--sections", nargs="+", default=["2.1", "2.2", "2.4"],

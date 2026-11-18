@@ -30,7 +30,7 @@ from exp_detection_params import (BASELINE, config_name, detect, prepare,  # noq
 from module_preprocess import (DEFAULT_HYSTERESIS_LOW, DEFAULT_MIN_AREA,  # noqa: E402
                                DEFAULT_OPEN_KSIZE, DEFAULT_THRESHOLD_FLOOR)
 
-# Sai so cho phep: CSV lam tron 5 chu so thap phan.
+# Dung sai cho phép: CSV làm tròn 5 chữ số thập phân.
 TOL = 2e-5
 FLOAT_FIELDS = ("recall", "precision", "f1", "false_blobs_per_img",
                 "recall_weak", "f1_iou30", "f1_iou50")

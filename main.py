@@ -6,7 +6,7 @@ import sys
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# 1. Import module tiền xử lý
+# Tiền xử lý: căn chỉnh ảnh, trừ vi sai, nhị phân hoá
 from module_preprocess import (
     DETECTORS,
     DEFAULT_DETECTOR,
@@ -23,13 +23,13 @@ from module_preprocess import (
     warp_valid_mask,
 )
 
-# 2. Import module phát hiện & cắt đốm lỗi
+# Phát hiện đốm lỗi và cắt ra ảnh riêng
 from module_detection import extract_bounding_boxes, crop_defect_patches
 
-# 3. Import loader dùng chung (đọc pairs_manifest.csv + labels/)
+# Đọc cặp ảnh từ pairs_manifest.csv và nhãn trong labels/
 from dataset_utils import find_pairs, load_image
 
-# 4. Import module trực quan hoá (việc #2 của Hinh)
+# Trực quan hoá: đường nối đặc trưng, bàn cờ, đóng khung
 from module_visualization import (
     draw_feature_matches,
     draw_homography_verification,
@@ -37,7 +37,7 @@ from module_visualization import (
 )
 
 
-# hàm dọn output
+# Xoá output cũ trước mỗi lần chạy
 def clean_output_directories(directories: list = None) -> int:
     """
     Xóa sạch các file ảnh trong thư mục output (mặc định: 'crops', 'results')
@@ -98,7 +98,7 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     """
     start = time.time()
 
-    # 1. Tải ảnh màu (test + template)
+    # 1. Đọc ảnh màu test và template
     test_path = pair["test_path"]
     temp_path = pair["template_path"]
     img_id = pair["pair_id"]
@@ -106,8 +106,8 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
     img_test_color = load_image(test_path)
     img_temp_color = load_image(temp_path)
 
-    # 2. Căn chỉnh ảnh kiểm tra theo ảnh mẫu (detector + Homography),
-    #    kiểm chứng bằng NCC; bị từ chối thì thử detector dự phòng.
+    # 2. Căn chỉnh ảnh test theo template (detector + Homography), kiểm chứng bằng
+    #    NCC; nếu bị từ chối thì thử detector dự phòng.
     try:
         img_test_aligned, align_stats = align_images_robust(
             img_temp_color, img_test_color,
@@ -119,9 +119,9 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
         img_test_aligned = img_test_color
         align_stats = exc.stats
 
-    # 3. Trừ vi sai và nhị phân hóa Otsu, khử nhiễu Morphology
-    #    Mask vùng hợp lệ sau warp: ảnh test xoay/dịch sẽ để lại dải đen ở mép,
-    #    dải này chi phối Otsu và xoá mất lỗi mảnh (CODE_REVIEW.md mục 2.3).
+    # 3. Trừ vi sai rồi nhị phân hoá Otsu + khử nhiễu.
+    #    Mask vùng hợp lệ: sau warp, mép ảnh còn dải đen; nếu để nguyên,
+    #    dải này kéo Otsu lên và xoá mất lỗi mảnh (CODE_REVIEW.md mục 2.3).
     valid_mask = None
     if align_stats.get("success") and align_stats.get("H") is not None:
         valid_mask = warp_valid_mask(
@@ -133,10 +133,10 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
         hysteresis_low=hysteresis_low, valid=valid_mask,
     )
 
-    # 4. Tìm Contours và trích xuất Bounding Boxes
+    # 4. Tìm contour và lấy bounding box
     boxes = extract_bounding_boxes(diff_mask, min_area=min_area)
 
-    # 5. Cắt và lưu các ảnh con đốm lỗi (mỗi ảnh 1 thư mục riêng)
+    # 5. Cắt từng đốm lỗi ra ảnh riêng
     crop_paths = []
     output_path = None
     if save_outputs:
@@ -145,14 +145,14 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
             img_test_aligned, boxes, output_dir=crop_dir, padding=5
         )
 
-        # 6. Đóng khung đỏ và lưu ảnh kết quả (tên file theo mã ảnh)
+        # 6. Đóng khung đỏ, lưu ảnh kết quả theo mã ảnh
         results_dir = 'results'
         os.makedirs(results_dir, exist_ok=True)
         img_result = draw_results(img_test_aligned, boxes)
         output_path = os.path.join(results_dir, f'result_{img_id}.jpg')
         cv2.imwrite(output_path, img_result)
 
-        # 7. Đường nối đặc trưng + kiểm định căn chỉnh (khi bật --visualize)
+        # 7. Vẽ đường nối đặc trưng + kiểm định căn chỉnh (khi bật --visualize)
         if visualize and align_stats.get("success"):
             cv2.imwrite(
                 os.path.join(results_dir, f'matches_{img_id}.jpg'),
@@ -165,7 +165,7 @@ def process_pair(pair: dict, detector: str = DEFAULT_DETECTOR,
 
     elapsed = time.time() - start
     if extra_out is not None:
-        # Dùng lại kết quả trung gian cho GUI / bước phân loại (không chạy lại pipeline).
+        # Trả kết quả trung gian cho GUI / bước phân loại, không chạy lại pipeline.
         extra_out.update(
             template=img_temp_color,
             aligned=img_test_aligned,
@@ -245,13 +245,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# hàm main
 def main():
     """Tự động chạy pipeline trên các cặp ảnh tìm thấy trong data/."""
     args = parse_args()
     start_total_time = time.time()
 
-    # Dọn dẹp output cũ MỘT LẦN trước khi chạy
+    # Dọn output cũ một lần trước khi chạy
     clean_output_directories(['crops', 'results'])
     os.makedirs('results', exist_ok=True)
 
@@ -324,7 +323,7 @@ def main():
         print(f"    Thời gian        : {elapsed:.3f} giây")
         print(f"    Ảnh kết quả      : {output_path}")
 
-        # Nếu chỉ có 1 cặp thì in chi tiết toạ độ như bản cũ
+        # Chỉ có 1 cặp thì in chi tiết toạ độ
         if len(pairs) == 1:
             print(f"\n{'STT':<5} | {'Tọa độ (x, y)':<15} | "
                   f"{'Kích thước (w, h)':<19} | {'Diện tích':>10}")

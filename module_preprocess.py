@@ -3,49 +3,34 @@ import time
 import cv2
 import numpy as np
 
-
-# =====================================================================
-# BO DO DAC TRUNG: ORB / SIFT / AKAZE
-# ---------------------------------------------------------------------
-# Ba detector dung chung MOT pipeline:
-#   detectAndCompute -> BFMatcher cross-check -> loc theo keep_percentage
-#   -> RANSAC homography -> kiem tra reprojection error -> warpPerspective
-# Chi khac nhau o khoi tao detector va chuan khoang cach (norm) cua matcher.
-# Vi vay chi can mot registry thay vi 3 module rieng.
-# =====================================================================
+# Bộ dò đặc trưng: ORB / SIFT / AKAZE.
+# Cả ba dùng chung một pipeline (dò → ghép → RANSAC → nắn ảnh), chỉ khác cách
+# khởi tạo detector và cách đo khoảng cách của matcher.
 DETECTORS = ("ORB", "SIFT", "AKAZE")
 DEFAULT_DETECTOR = "ORB"
-# Diem can bang do chinh xac / toc do, chot tu experiments/exp_max_features.py.
+# Điểm cân bằng giữa chính xác và tốc độ, chốt từ experiments/exp_max_features.py.
 DEFAULT_MAX_FEATURES = 2000
 
-# Ten cu, giu de code/nhan xet cu van doc duoc. main.py nen truyen --detector.
+# Tên cũ, giữ để code cũ vẫn chạy; nên truyền --detector thay vì dùng biến này.
 DETECTOR_NAME = DEFAULT_DETECTOR
 
-# --- P0.1: kiem chung homography bang diem anh (NCC) ----------------------
-# Sau khi tinh H, so khop template voi anh test da nan o do phan giai thap.
-# Tren 693 cap PKU (dieu kien that) NCC min 0.9950, median 0.9998 -> dat nguong
-# cao (0.97) la vo dung; nguong nay chi de chan THAM HOA (H khop nham sang hoa
-# van lap lai, hoac canh lech han). 0.90 = bien an toan ~0.09 duoi muc thap nhat
-# do duoc. None = tat kiem tra.
+# Ngưỡng NCC để kiểm chứng Homography, chặn trường hợp H khớp nhầm vào hoạ tiết lặp.
+# Trên 693 cặp PKU: NCC thấp nhất 0.9950, trung vị 0.9998 → 0.90 là biên an toàn.
+# None = tắt kiểm tra.
 DEFAULT_MIN_NCC = 0.90
-APPEARANCE_WIDTH = 400          # chieu rong (px) anh thu nho de tinh NCC
-APPEARANCE_BLUR = 3             # Gaussian sau khi thu nho: can bang do sac net giua
-                                # template (khong noi suy) va anh test (da noi suy).
-                                # Do tren anh mau: khop dung 0.995, lech 2 px 0.984,
-                                # lech 4 px 0.941, lech 7 px 0.857.
-# Chi phi kiem chung do tren 693 cap: ~38 ms/cap (~14% thoi gian can chinh).
-# Mac dinh KHONG dung detector du phong: tren PKU chua cap nao bi tu choi, con
-# SIFT ton them ~1.5 s/cap. Bat lai khi can: --fallback SIFT (hoac truyen vao
-# `align_images_robust(fallbacks=...)`).
+APPEARANCE_WIDTH = 400          # chiều rộng ảnh thu nhỏ để tính NCC (px)
+APPEARANCE_BLUR = 3             # làm mờ nhẹ để template và ảnh test cùng độ nét
+
+# Mặc định không dùng detector dự phòng: PKU chưa cặp nào bị từ chối, còn SIFT
+# tốn thêm ~1.5 s/cặp. Bật khi cần bằng --fallback SIFT.
 DEFAULT_FALLBACKS = ()
 
-# --- Tham so nhi phan hoa ban do vi sai (P0.3 / P1.1) ---------------------
-# Gia tri mac dinh chot tu luoi 60 cau hinh (experiments/detection_defaults.md).
-# Doi bang experiments/exp_detection_params.py + chay experiments/verify_defaults.py.
-DEFAULT_THRESHOLD_FLOOR = 20    # nguong san: max(Otsu, floor)
-DEFAULT_OPEN_KSIZE = 2          # kernel morphology opening (<=1: bo opening)
-DEFAULT_HYSTERESIS_LOW = None   # vd 0.5: giu vung >= 0.5*nguong neu noi voi vung manh
-DEFAULT_MIN_AREA = 20           # dien tich toi thieu cua dom loi (module_detection)
+# Tham số nhị phân hoá bản đồ vi sai, chốt từ lưới 60 cấu hình
+# (experiments/detection_defaults.md). Đổi thì chạy lại experiments/verify_defaults.py.
+DEFAULT_THRESHOLD_FLOOR = 20    # ngưỡng sàn: max(Otsu, floor)
+DEFAULT_OPEN_KSIZE = 2          # kernel opening (<= 1: bỏ opening)
+DEFAULT_HYSTERESIS_LOW = None   # vd 0.5: giữ vùng yếu nếu nối với vùng mạnh
+DEFAULT_MIN_AREA = 20           # diện tích tối thiểu của đốm lỗi (module_detection)
 
 MATCHER_NORMS = {
     "ORB": cv2.NORM_HAMMING,
@@ -64,8 +49,7 @@ def _normalize_detector(detector: str) -> str:
 
 
 def _create_akaze():
-    # OpenCV 4.x: cv2.AKAZE_create; OpenCV 5.x chuyen sang cv2.xfeatures2d
-    # (can cai opencv-contrib-python).
+    # OpenCV 5.x: AKAZE nằm ở cv2.xfeatures2d (cần opencv-contrib-python).
     if hasattr(cv2, "AKAZE_create"):
         return cv2.AKAZE_create()
     if hasattr(cv2, "xfeatures2d") and hasattr(cv2.xfeatures2d, "AKAZE_create"):
@@ -193,7 +177,7 @@ def appearance_score(
     small_t = cv2.resize(gray_t, size_t, interpolation=cv2.INTER_AREA)
     small_s = cv2.resize(gray_s, size_s, interpolation=cv2.INTER_AREA)
 
-    # H o do phan giai thap: S_t * H * S_s^-1
+    # Đưa H về ảnh thu nhỏ: S_t · H · S_s⁻¹
     S_t = np.diag([scale_t, scale_t, 1.0])
     S_s_inv = np.diag([1.0 / scale_s, 1.0 / scale_s, 1.0])
     H_small = S_t @ H @ S_s_inv
@@ -228,7 +212,7 @@ def appearance_score(
         gy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
         return cv2.magnitude(gx, gy)
 
-    inner = cv2.erode(valid, np.ones((3, 3), np.uint8)) > 0  # bo vien gradient gia
+    inner = cv2.erode(valid, np.ones((3, 3), np.uint8)) > 0  # bỏ viền gradient giả
     if np.count_nonzero(inner) >= 500:
         result["ncc_grad"] = _pearson(grad_mag(small_t)[inner], grad_mag(warped)[inner])
     return result
@@ -287,7 +271,7 @@ def align_images_with_stats(
         stats["failed_check"] = check
         raise AlignmentError(message, stats)
 
-    # Kiem tra input
+    # Kiểm tra đầu vào
     if img_template is None or img_test is None:
         raise ValueError("Anh template va anh test khong hop le")
     if img_template.ndim not in (2, 3) or img_test.ndim not in (2, 3):
@@ -302,7 +286,7 @@ def align_images_with_stats(
 
     t_start = time.perf_counter()
 
-    # 1. Do dac trung (detector co the khong co san, vd AKAZE thieu contrib)
+    # 1. Dò đặc trưng (AKAZE cần opencv-contrib-python)
     try:
         kp_template, des_template = detect_and_describe(
             gray_template, max_features, name
@@ -315,22 +299,22 @@ def align_images_with_stats(
     stats["kp_template"] = len(kp_template)
     stats["kp_test"] = len(kp_test)
 
-    # Neu anh qua tron/it chi tiet thi khong trich xuat duoc keypoint
+    # Ảnh quá trơn thì không có keypoint
     if des_template is None or des_test is None:
         fail("Khong the trich xuat diem dac trung tu anh dau vao.")
 
-    # 2. Ghep cap (cross-check), giu lai diem match tot nhat
+    # 2. Ghép cặp (cross-check), giữ lại các match tốt nhất
     matcher = cv2.BFMatcher(MATCHER_NORMS[name], crossCheck=True)
     matches = matcher.match(des_test, des_template)
     t_match = time.perf_counter()
     stats["time_match_ms"] = (t_match - t_detect) * 1000.0
     stats["matches"] = len(matches)
 
-    # Homography co 8 bac tu do nen can toi thieu 4 diem khong thang hang
+    # Homography có 8 bậc tự do, cần ít nhất 4 điểm không thẳng hàng
     if len(matches) < 4:
         fail(f"Chi co {len(matches)} cap khop, can it nhat 4 de tinh homography")
 
-    matches = sorted(matches, key=lambda x: x.distance)  # distance tang dan
+    matches = sorted(matches, key=lambda x: x.distance)  # khoảng cách tăng dần
     num_keeps = min(len(matches), max(int(len(matches) * keep_percentage), 4))
     good_matches = matches[:num_keeps]
     stats["good_matches"] = len(good_matches)
@@ -342,7 +326,7 @@ def align_images_with_stats(
         [kp_template[m.trainIdx].pt for m in good_matches]
     ).reshape(-1, 1, 2)
 
-    # 3. Tinh Homography bang RANSAC
+    # 3. Ước lượng Homography bằng RANSAC
     H, mask = cv2.findHomography(pts_test, pts_template, cv2.RANSAC, 3.0)
     t_homo = time.perf_counter()
     stats["time_homography_ms"] = (t_homo - t_match) * 1000.0
@@ -350,20 +334,20 @@ def align_images_with_stats(
     if H is None or mask is None:
         fail("Khong tim thay ma tran homography phu hop!")
 
-    inliers = mask.ravel().astype(bool)  # mask RANSAC: 1 = inlier
+    inliers = mask.ravel().astype(bool)  # mask RANSAC: 1 = điểm inlier
     num_inliers = int(np.count_nonzero(inliers))
     inlier_ratio = num_inliers / len(good_matches)
     stats["inliers"] = num_inliers
     stats["inlier_ratio"] = inlier_ratio
-    # Toa do cac cap inlier (dung de ve duong noi khi truc quan hoa)
+    # Toạ độ các cặp inlier, dùng để vẽ đường nối khi trực quan hoá
     stats["inlier_pts_test"] = pts_test[inliers].reshape(-1, 2)
     stats["inlier_pts_template"] = pts_template[inliers].reshape(-1, 2)
 
-    # Doi chieu cac diem test qua H voi toa do template tuong ung
+    # Chiếu điểm test qua H rồi so với điểm template tương ứng
     if num_inliers > 0:
         projected = cv2.perspectiveTransform(pts_test[inliers], H)
         errors = np.linalg.norm(projected - pts_template[inliers], axis=2)
-        # Dung median thay vi mean de tranh vai outlier lam lech ket qua
+        # Dùng median để vài outlier không kéo lệch kết quả
         stats["reprojection_error"] = float(np.median(errors))
 
     if num_inliers < 12 or inlier_ratio < 0.15:
@@ -381,16 +365,15 @@ def align_images_with_stats(
     if abs(H[2, 2]) < 1e-8:
         fail("Homography khong the chuan hoa.")
 
-    H = H / H[2, 2]  # Chuan hoa H[2,2] = 1
+    H = H / H[2, 2]  # chuẩn hoá để H[2,2] = 1
 
-    # det cua phan affine 2x2 xap xi ti le dien tich anh
+    # định thức khối affine 2×2, xấp xỉ tỉ lệ diện tích ảnh
     det = np.linalg.det(H[:2, :2])
     if not (0.5 < det < 2.0):
         fail(f"Homography gay bien dang bat thuong (det = {det:.3f}).")
 
-    # 4. Kiem chung bang diem anh (P0.1): cac kiem tra tren chi dua vao tap
-    # inlier nen khong bat duoc H "sai nhung tu nhat quan" (vd khop nham
-    # sang mot hoa van lap lai). NCC so sanh truc tiep noi dung anh.
+    # 4. Kiểm chứng bằng NCC: các kiểm tra trên chỉ dựa vào inlier nên vẫn có thể
+    # nhận H sai nhưng "tự nhất quán" (khớp nhầm hoạ tiết lặp lại).
     stats["H_candidate"] = H
     t_verify = time.perf_counter()
     stats.update(appearance_score(gray_template, gray_test, H, test_mask=test_mask))
@@ -403,17 +386,17 @@ def align_images_with_stats(
             fail(f"Kiem chung diem anh that bai: NCC {ncc:.3f} < {min_ncc:.3f}.",
                  check="appearance")
 
-    # 5. Nan anh test ve he toa do template
+    # 5. Nắn ảnh test về hệ toạ độ template
     h, w = gray_template.shape[:2]
     img_test_aligned = cv2.warpPerspective(
         img_test, H, (w, h),
-        flags=cv2.INTER_LINEAR,  # noi suy tu cac pixel lan can
+        flags=cv2.INTER_LINEAR,  # nội suy từ các pixel lân cận
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0,
     )
     t_end = time.perf_counter()
-    # Chi tinh rieng buoc warp: (t_end - t_verify_end). Cong thuc cu
-    # (t_end - t_homo) - time_verify_ms gop ca kiem tra hinh hoc + warp nen co the am.
+    # Chỉ tính riêng bước warp: t_end - t_verify_end. Công thức cũ
+    # trừ cả kiểm tra hình học nên có thể ra số âm.
     stats["time_warp_ms"] = max(0.0, (t_end - t_verify_end) * 1000.0)
     stats["time_total_ms"] = (t_end - t_start) * 1000.0
     stats["H"] = H
@@ -473,7 +456,7 @@ def align_images_robust(
             attempts.append((det, mf))
 
     log = []
-    best = None          # (ncc, stats) cua lan chi hong kiem tra NCC
+    best = None          # (ncc, stats) của lần hỏng ở bước kiểm tra NCC
     last_stats = None
     total_ms = 0.0
     for det, mf in attempts:
@@ -581,7 +564,7 @@ def difference_map(
     if img_template is None or img_test_aligned is None:
         raise ValueError("Anh dau vao khong hop le.")
 
-    # Chuyen gray + CLAHE (phuong phap thang cua khao sat RGB -> Binary).
+    # Gray + CLAHE: phương án thắng trong khảo sát RGB → Binary.
     gray_template = _gray_clahe(img_template)
     gray_test = _gray_clahe(img_test_aligned)
 
@@ -601,8 +584,8 @@ def difference_map(
     template_eroded = cv2.erode(blur_template, kernel)
     template_dilated = cv2.dilate(blur_template, kernel)
 
-    test_brighter = cv2.subtract(blur_test, template_dilated)  # loi open, pin-hole,..
-    test_darker = cv2.subtract(template_eroded, blur_test)  # loi short, spur,..
+    test_brighter = cv2.subtract(blur_test, template_dilated)  # lỗi open, pin-hole,...
+    test_darker = cv2.subtract(template_eroded, blur_test)  # lỗi short, spur,...
 
     diff = cv2.max(test_brighter, test_darker)
     return diff, blur_ms
@@ -649,7 +632,7 @@ def binarize_difference(
     else:
         sample = diff
 
-    # Nhi phan hoa Otsu + nguong san; mau Otsu chi lay trong vung hop le.
+    # Otsu + ngưỡng sàn; mẫu Otsu chỉ lấy trong vùng hợp lệ.
     otsu_val, _ = cv2.threshold(
         np.ascontiguousarray(sample).reshape(-1, 1), 0, 255,
         cv2.THRESH_BINARY + cv2.THRESH_OTSU
@@ -674,14 +657,14 @@ def binarize_difference(
             keep[0] = False
             diff_binary = np.where(keep[labels], 255, 0).astype(np.uint8)
 
-    # Bo vien anh (border=0 nghia la khong bo; tranh -0: cat toan bo anh)
+    # Bỏ viền ảnh. border=0 là không bỏ (nếu không, -0 sẽ cắt sạch ảnh).
     if border > 0:
         diff_binary[:border, :] = 0
         diff_binary[-border:, :] = 0
         diff_binary[:, :border] = 0
         diff_binary[:, -border:] = 0
 
-    # Khu nhieu bang morphology opening
+    # Khử nhiễu bằng morphology opening
     if open_ksize and open_ksize > 1:
         clean_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (open_ksize, open_ksize))
         return cv2.morphologyEx(diff_binary, cv2.MORPH_OPEN, clean_kernel)

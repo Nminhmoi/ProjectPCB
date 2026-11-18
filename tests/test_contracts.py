@@ -46,9 +46,9 @@ def test_binarize_shape_dtype():
 
 
 def test_binarize_respects_valid():
-    diff = np.full((200, 200), 255, np.uint8)   # ngoai vung hop le: sang het
+    diff = np.full((200, 200), 255, np.uint8)   # ngoài vùng hợp lệ: sáng hết
     diff[50:150, 50:150] = 0
-    diff[80:120, 80:120] = 200                  # blob that nam trong vung hop le
+    diff[80:120, 80:120] = 200                  # blob thật nằm trong vùng hợp lệ
     valid = np.zeros((200, 200), np.uint8)
     valid[50:150, 50:150] = 255
     mask = binarize_difference(diff, border=0, valid=valid)
@@ -73,7 +73,7 @@ def test_prf_from_counts():
 
 def test_extract_bounding_boxes_min_area():
     mask = np.zeros((40, 40), np.uint8)
-    mask[5:8, 5:8] = 255          # blob 3x3 = 9 px
+    mask[5:8, 5:8] = 255          # blob 3×3 = 9 px
     kept = extract_bounding_boxes(mask, min_area=5)
     dropped = extract_bounding_boxes(mask, min_area=10)
     assert len(kept) == 1, f"min_area=5 phai giu blob, nhan duoc {len(kept)}"

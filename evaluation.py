@@ -21,14 +21,11 @@ import numpy as np
 
 Box = Tuple[int, int, int, int]  # (x, y, w, h)
 
-# Mô tả điều kiện đo, ghi kèm mọi bảng tổng hợp (P2.2)
+# Quy ước đo, in kèm mọi bảng tổng hợp (P2.2)
 MATCH_RULE_TOUCH = "touch_tol5"
 IOU_THRESHOLDS = (0.3, 0.5)
 
-
-# ---------------------------------------------------------------------
-# Nhãn
-# ---------------------------------------------------------------------
+# Đọc nhãn ground truth
 def read_labels(label_path: Optional[Path]) -> List[Box]:
     """Đọc labels/<pair>.txt -> danh sách (x, y, w, h)."""
     if not label_path or not Path(label_path).is_file():
@@ -41,10 +38,7 @@ def read_labels(label_path: Optional[Path]) -> List[Box]:
             boxes.append((x, y, w, h))
     return boxes
 
-
-# ---------------------------------------------------------------------
-# Ghép bbox
-# ---------------------------------------------------------------------
+# Ghép bbox dự đoán với ground truth
 def boxes_touch(a: Box, b: Box, tol: int = 5) -> bool:
     ax, ay, aw, ah = a
     bx, by, bw, bh = b
@@ -137,10 +131,7 @@ def prf_from_counts(rows: Iterable[Dict[str, object]],
         out.update({f"recall_{suffix}": r_, f"precision_{suffix}": p_, f"f1_{suffix}": _f1(p_, r_)})
     return out
 
-
-# ---------------------------------------------------------------------
-# Nắn lệch giả lập
-# ---------------------------------------------------------------------
+# Sinh phép nắn lệch giả lập
 def random_homography(width: int, height: int, rng: np.random.Generator,
                       max_angle: float, max_shift: float, max_scale: float) -> np.ndarray:
     """Homography đã biết: xoay + co giãn quanh tâm ảnh rồi tịnh tiến."""

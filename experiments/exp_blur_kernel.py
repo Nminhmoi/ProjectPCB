@@ -96,7 +96,7 @@ LINE_WIDTHS = (1, 2, 3, 5)
 COLORS = {1: "#8C8C8C", 3: "#4C72B0", 5: "#DD8452", 6: "#C44E52", 7: "#55A868"}
 
 
-# 1. Làm mờ với kernel k (xử lý riêng 1x1 và kernel chẵn)
+# Làm mờ với kernel k (xử lý riêng 1x1 và kernel chẵn)
 def gaussian_sigma(k: int) -> float:
     """sigma OpenCV tự chọn khi truyền sigma=0 (công thức của getGaussianKernel)."""
     return 0.3 * ((k - 1) * 0.5 - 1) + 0.8
@@ -118,7 +118,7 @@ def try_opencv_gaussian(k: int) -> str:
 
 
 
-# 2. Phần A — chỉ số lý thuyết
+# Phần A: chỉ số lý thuyết
 def theory_table(kernels: List[int]) -> List[Dict[str, object]]:
     """Tính sigma, khử nhiễu, giữ nét mảnh và độ lệch tâm cho từng kernel."""
     rows = []
@@ -172,7 +172,7 @@ def print_theory(rows: List[Dict[str, object]]) -> None:
             print(f"cv2.GaussianBlur({r['kernel']}x{r['kernel']}) -> {r['opencv_error']}")
 
 
-# 3. Phần B — đánh giá trên cặp ảnh
+# Phần B: đánh giá trên cặp ảnh
 def read_labels(label_path: Optional[Path]) -> List[Tuple[int, int, int, int]]:
     if not label_path or not Path(label_path).is_file():
         return []
@@ -267,7 +267,7 @@ def evaluate_pair(pair: Dict[str, object], kernels: List[int],
     return rows, visual
 
 
-# 4. Tổng hợp
+# Tổng hợp
 def _ratio(num: int, den: int) -> float:
     return num / den if den else float("nan")
 
@@ -443,7 +443,7 @@ def conclusions(theory: List[Dict[str, object]], summary: List[Dict[str, object]
     return lines
 
 
-# 5. Biểu đồ
+# Biểu đồ
 def plot_comparison(theory: List[Dict[str, object]], summary: List[Dict[str, object]],
                     output_path: Path, n_pairs: int) -> None:
     has_data = bool(summary)
@@ -566,7 +566,7 @@ def plot_visual(visual: Dict[str, object], kernels: List[int], output_path: Path
     plt.close(fig)
 
 
-# 6. Entry point
+# Điểm vào CLI
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Khảo sát kernel Gaussian blur trên các cặp ảnh PCB.")
     parser.add_argument("--data-dir", type=Path, default=Path("data"),
