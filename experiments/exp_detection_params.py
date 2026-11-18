@@ -25,7 +25,7 @@ P0.3 + P1.1 + P1.2 — Dò tham số bước nhị phân hóa và đo F1 chặt 
       - recall / precision / F1 theo tiêu chí cũ ("chạm nhau", dung sai 5 px)
       - F1@IoU0.3 và F1@IoU0.5 (ghép 1-1) - P1.2
       - số đốm giả / ảnh, recall theo từng lớp lỗi, recall 3 cặp trọng điểm
-      - đạt / không đạt các chỉ tiêu KPI (mục 5 của EXPERIMENT_REVIEW.md)
+      - đạt / không đạt KPI nhóm chốt 17/11 (recall >= 0,95 và đốm giả <= 0,05/ảnh)
     Chẩn đoán (cấu hình gốc): mỗi lỗi GT bị bỏ sót được quy về BƯỚC làm mất nó:
       "ngưỡng"   : không pixel nào trong bbox GT vượt ngưỡng
       "opening"  : có pixel vượt ngưỡng nhưng opening xóa hết
@@ -114,7 +114,8 @@ WEAK_CLASSES = ("Spur", "Spurious_copper")
 VALID_ERODE = 3
 BASELINE = (DEFAULT_THRESHOLD_FLOOR, DEFAULT_OPEN_KSIZE,
             float(DEFAULT_HYSTERESIS_LOW or 0.0), DEFAULT_MIN_AREA)
-KPI = {"recall": 0.97, "f1": 0.975, "weak_recall": 0.96, "false_blobs": 0.05}
+# KPI nhóm chốt 17/11: recall là ngưỡng sàn, đốm giả/ảnh là mục tiêu nội bộ.
+KPI = {"recall": 0.95, "false_blobs": 0.05}
 Config = Tuple[int, int, float, int]  # thứ tự: (floor, open, hysteresis, min_area)
 
 
@@ -281,9 +282,8 @@ def summarize(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
         bf = float(b["false_blobs_per_img"])
         s["false_blobs_change_pct"] = ((float(s["false_blobs_per_img"]) - bf) / bf * 100
                                        if bf > 0 else (0.0 if float(s["false_blobs_per_img"]) == 0 else float("inf")))
-        weak_ok = math.isnan(float(s["recall_weak"])) or float(s["recall_weak"]) >= KPI["weak_recall"]
-        s["kpi_pass"] = bool(float(s["recall"]) >= KPI["recall"] and float(s["f1"]) >= KPI["f1"]
-                             and weak_ok and float(s["false_blobs_per_img"]) <= KPI["false_blobs"])
+        s["kpi_pass"] = bool(float(s["recall"]) >= KPI["recall"]
+                             and float(s["false_blobs_per_img"]) <= KPI["false_blobs"])
     return out
 
 

@@ -204,6 +204,8 @@ py -3.14 -u experiments/exp_blur_kernel.py --output-dir experiments
 
 ## 5. Chỉ tiêu KPI đề xuất cho giai đoạn tiếp theo
 
+> **Cập nhật 17/11:** nhóm chốt lại KPI phát hiện là `recall ≥ 0,95` (ngưỡng sàn) và `đốm giả ≤ 0,05/ảnh` (mục tiêu nội bộ); bỏ mốc F1 ≥ 0,975 và recall lớp yếu ≥ 0,96 khỏi tiêu chí chốt. Bảng dưới giữ nguyên làm bản đề xuất ban đầu; số chốt hiện tại xem `experiments/detection_defaults.md` mục 4 và `PROGRESS_REPORT.md` mục 5.6.
+
 | Chỉ số | Hiện tại | Mục tiêu |
 | :--- | :---: | :---: |
 | Recall phát hiện lỗi (toàn bộ) | 0.961 | ≥ 0.97 |

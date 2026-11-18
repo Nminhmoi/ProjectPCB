@@ -50,18 +50,27 @@ Chỉ **1/60** cấu hình không làm giảm precision ở cả 2 điều kiệ
 Nói cách khác, "không giảm precision" và "tăng recall đáng kể" loại trừ nhau trên
 lưới này; muốn tăng recall phải chấp nhận đánh đổi precision rất nhỏ.
 
-## 4. KPI mục 5 (EXPERIMENT_REVIEW.md)
+## 4. KPI nhóm chốt (17/11)
 
-`KPI = {recall ≥ 0,97, f1 ≥ 0,975, weak_recall ≥ 0,96, false_blobs ≤ 0,05/ảnh}`
+`KPI = {recall ≥ 0,95, false_blobs ≤ 0,05/ảnh}`
 
-**0/60 cấu hình đạt KPI** trên cả 2 điều kiện — nút thắt là `false_blobs`:
-mọi cấu hình đều 0,07–0,09 đốm giả/ảnh (ngưỡng 0,05). Ghi rõ khi báo cáo, không
-được viết "đạt KPI".
+Recall 0,95 là **ngưỡng sàn**, không phải nút thắt. Toàn bộ 120 dòng của lưới đều
+có recall ≥ 0,96546, nên recall không loại cấu hình nào.
+
+**0/60 cấu hình đạt KPI** trên cả 2 điều kiện — lý do duy nhất là `false_blobs`:
+đa số cấu hình 0,07–0,09 đốm giả/ảnh nhưng không cấu hình nào ≤ 0,05; thấp nhất
+là 0,07071, vài cấu hình tệ tới ~51 đốm/ảnh. Ghi rõ khi báo cáo, không được viết
+"đạt KPI".
+
+Cột `kpi_pass` trong `detection_params_summary.csv` được sinh bằng ngưỡng cũ
+(0,97 và thêm F1/weak_recall); vì toàn bộ giá trị là `False` và ngưỡng mới vẫn
+không cấu hình nào qua được `false_blobs`, đổi KPI không làm lệch số nào trong CSV.
 
 ## 5. Quyết định
 
-**Nhóm chốt (17/11): đổi sang `floor20_open2_single_area20`** — ưu tiên
-recall ≥ 95% theo báo cáo buổi thông, chấp nhận precision resample giảm 0,0014.
+**Nhóm chốt (17/11): đổi sang `floor20_open2_single_area20`** — recall 0,995 ở
+`clean` và 0,9949 ở `resample`, vượt ngưỡng sàn 0,95, chấp nhận precision
+resample giảm 0,0014.
 
 Đã áp dụng: `DEFAULT_THRESHOLD_FLOOR = 20`, `DEFAULT_OPEN_KSIZE = 2`
 (`DEFAULT_HYSTERESIS_LOW = None`, `DEFAULT_MIN_AREA = 20` giữ nguyên).

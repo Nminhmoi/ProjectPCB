@@ -260,7 +260,7 @@ Mục 4 là hướng triển khai; mục này là kết quả đã thực hiện
 
 ### 5.6. Chốt tham số phát hiện (nhóm quyết định 17/11)
 
-Trên lưới 60 cấu hình × 693 cặp × 2 điều kiện (`clean` = ảnh gốc, `resample` = ảnh nắn lệch rồi căn lại), nhóm chọn `floor20_open2_single_area20` vì **ưu tiên recall ≥ 95%**:
+Trên lưới 60 cấu hình × 693 cặp × 2 điều kiện (`clean` = ảnh gốc, `resample` = ảnh nắn lệch rồi căn lại), nhóm chọn `floor20_open2_single_area20`. Recall **không phải nút thắt**: cả 120 dòng của lưới đều ≥ 0,9655, nên mốc 0,95 chỉ là ngưỡng sàn. Lý do chọn thật là: **0 cặp sót toàn bộ** (cấu hình cũ sót 3 cặp), recall lớp yếu `Spur`/`Spurious_copper` tăng từ 0,943/0,930 lên 0,989/0,986, và F1 cao nhất lưới:
 
 | Điều kiện | F1 | Precision | Recall | Đốm giả/ảnh | Cặp sót toàn bộ |
 | :--- | ---: | ---: | ---: | ---: | ---: |
@@ -271,7 +271,8 @@ Trên lưới 60 cấu hình × 693 cặp × 2 điều kiện (`clean` = ảnh g
 
 * Đánh đổi đã chấp nhận: precision resample −0,0014 (≈ 4 dự đoán sai thêm trên ~3.000) để lấy +0,029 recall và **hết 3 cặp sót toàn bộ** (`01_spur_04`, `04_spurious_copper_05`, `01_mouse_bite_19`).
 * `experiments/verify_defaults.py` chạy lại đúng cấu hình này trên 693 cặp × 2 điều kiện và khớp từng chỉ số với `experiments/detection_params_summary.csv` → chốt chặn hồi quy.
-* **Không cấu hình nào trong 60 cấu hình đạt KPI `false_blobs ≤ 0,05 đốm/ảnh`** (thực tế 0,07–0,09). Ghi rõ khi báo cáo, không được viết "đạt KPI".
+* **Không cấu hình nào trong 60 cấu hình đạt trọn KPI nhóm chốt** (`recall ≥ 0,95` và `false_blobs ≤ 0,05 đốm/ảnh`, mục tiêu nội bộ). Recall thì cấu hình nào cũng qua (thấp nhất 0,9655); nút thắt duy nhất là đốm giả: thấp nhất 0,0707 (≈ 49 đốm/693 ảnh). Cấu hình chốt có 0,076 đốm giả/ảnh, tức khoảng **53 khung thừa trên 693 ảnh** (≈ 1 khung mỗi 13 ảnh, tương ứng precision 0,982). Ghi rõ khi báo cáo, không được viết "đạt KPI".
+* Các chỉ số trên dùng tiêu chí **"chạm nhau", dung sai 5 px**, không phải IoU. Nếu đo khắt khe hơn bằng F1@IoU0,5 thì chỉ còn 0,0073 (`clean`) / 0,0066 (`resample`) — bbox pipeline chỉ khoanh phần lõi vi sai lớn nhất của mỗi đốm chứ không phủ hết vùng GT (ví dụ `01_spur_04`: GT 43×36 px, dự đoán 12×2 px → IoU 0,016; GT trung vị 64×63 px). Đây là hạn chế đã biết của cách khoanh bbox, hướng khắc phục để sau; không giấu số và không dùng IoU làm tiêu chí chốt lần này.
 
 ### 5.7. Kiểm tra hợp đồng API (không phải kiểm thử chất lượng)
 
