@@ -51,25 +51,26 @@ except ImportError:
     print("=" * 65 + "\n")
     sys.exit(1)
 
-# Đảm bảo import được các module ở thư mục gốc của dự án
+# Đảm bảo import được các module ở thư mục gốc và thư mục MODULE của dự án
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+for _p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "MODULE")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from dataset_utils import find_pairs, load_image
 from evaluation import detection_counts, read_labels
-from module_detection import extract_bounding_boxes
-from module_preprocess import (DEFAULT_DETECTOR, DEFAULT_FALLBACKS,
-                               DEFAULT_MAX_FEATURES, DEFAULT_MIN_AREA,
-                               DEFAULT_MIN_NCC, DEFAULT_OPEN_KSIZE,
-                               DEFAULT_THRESHOLD_FLOOR, DETECTORS,
-                               AlignmentError, align_images_robust,
-                               binarize_difference, difference_map,
-                               is_detector_available, warp_valid_mask)
+from MODULE.module_detection import extract_bounding_boxes
+from MODULE.module_preprocess import (DEFAULT_DETECTOR, DEFAULT_FALLBACKS,
+                                       DEFAULT_MAX_FEATURES, DEFAULT_MIN_AREA,
+                                       DEFAULT_MIN_NCC, DEFAULT_OPEN_KSIZE,
+                                       DEFAULT_THRESHOLD_FLOOR, DETECTORS,
+                                       AlignmentError, align_images_robust,
+                                       binarize_difference, difference_map,
+                                       is_detector_available, warp_valid_mask)
 
 # Phan loai loi la tuy chon (module_classification.py chua co trong repo).
 try:  # pragma: no cover - phu thuoc vao tien do cua nhom
-    from module_classification import classify_defects as _classify_defects
+    from MODULE.module_classification import classify_defects as _classify_defects
 except Exception:  # noqa: BLE001
     _classify_defects = None
 

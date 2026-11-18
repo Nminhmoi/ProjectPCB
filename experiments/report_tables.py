@@ -51,7 +51,7 @@ for p in (str(PROJECT_ROOT), str(EXP_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-REPORT = PROJECT_ROOT / "PROGRESS_REPORT.md"
+REPORT = (PROJECT_ROOT / "TASK" / "PROGRESS_REPORT.md") if (PROJECT_ROOT / "TASK" / "PROGRESS_REPORT.md").exists() else (PROJECT_ROOT / "PROGRESS_REPORT.md")
 DETECTOR_ORDER = ["ORB", "SIFT", "AKAZE"]
 CURRENT_DETECTOR = "ORB"
 REPORT_MAX_FEATURES = [500, 1000, 2000, 3000, 5000, 10000]

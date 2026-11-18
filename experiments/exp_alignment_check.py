@@ -76,7 +76,7 @@ from evaluation import (  # noqa: E402
     estimate_content_homography,
     synthetic_warp,
 )
-from module_preprocess import (  # noqa: E402
+from MODULE.module_preprocess import (  # noqa: E402
     DEFAULT_MAX_FEATURES,
     DEFAULT_MIN_NCC,
     AlignmentError,

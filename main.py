@@ -1,13 +1,21 @@
 import argparse
 import os
-import time
-import cv2
 import sys
+import time
+from pathlib import Path
+import cv2
+
+# Đảm bảo đường dẫn gốc và thư mục MODULE luôn có trong sys.path
+_PROJECT_ROOT = Path(__file__).resolve().parent
+for _p in (str(_PROJECT_ROOT), str(_PROJECT_ROOT / "MODULE")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # 1. Import module tiền xử lý
-from module_preprocess import (
+from MODULE.module_preprocess import (
     DETECTORS,
     DEFAULT_DETECTOR,
     DEFAULT_FALLBACKS,
@@ -24,13 +32,13 @@ from module_preprocess import (
 )
 
 # 2. Import module phát hiện & cắt đốm lỗi
-from module_detection import extract_bounding_boxes, crop_defect_patches
+from MODULE.module_detection import extract_bounding_boxes, crop_defect_patches
 
 # 3. Import loader dùng chung (đọc pairs_manifest.csv + labels/)
 from dataset_utils import find_pairs, load_image
 
 # 4. Import module trực quan hoá (việc #2 của Hinh)
-from module_visualization import (
+from MODULE.module_visualization import (
     draw_feature_matches,
     draw_homography_verification,
     draw_results,

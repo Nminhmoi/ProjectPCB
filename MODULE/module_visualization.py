@@ -317,7 +317,14 @@ def draw_results(
 # =====================================================================
 if __name__ == "__main__":
     import os
-    from module_preprocess import align_images_with_stats
+    import sys
+    from pathlib import Path
+
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
+    from MODULE.module_preprocess import align_images_with_stats
 
     print("=" * 65)
     print("DEMO TRỰC QUAN HÓA KẾT QUẢ (module_visualization.py)")

@@ -83,8 +83,8 @@ from evaluation import (  # noqa: E402
     prf_from_counts,
     read_labels,
 )
-from module_detection import extract_bounding_boxes  # noqa: E402
-from module_preprocess import (  # noqa: E402
+from MODULE.module_detection import extract_bounding_boxes  # noqa: E402
+from MODULE.module_preprocess import (  # noqa: E402
     DETECTORS,
     DEFAULT_MAX_FEATURES,
     DEFAULT_MIN_NCC,

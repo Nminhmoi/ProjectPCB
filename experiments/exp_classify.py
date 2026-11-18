@@ -19,9 +19,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = Path(__file__).resolve().parent.parent
+for _p in (str(_ROOT), str(_ROOT / "MODULE")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-from module_classification import CLASS_NAMES, FEATURE_NAMES, save_model
+from MODULE.module_classification import CLASS_NAMES, FEATURE_NAMES, save_model
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_DATASET = SCRIPT_DIR / "classifier_dataset.csv"

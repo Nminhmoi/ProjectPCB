@@ -71,8 +71,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dataset_utils import find_pairs, load_image  # noqa: E402
-from module_detection import extract_bounding_boxes  # noqa: E402
-from module_preprocess import (  # noqa: E402
+from MODULE.module_detection import extract_bounding_boxes  # noqa: E402
+from MODULE.module_preprocess import (  # noqa: E402
     align_images,
     binarize_difference,
     detect_difference,

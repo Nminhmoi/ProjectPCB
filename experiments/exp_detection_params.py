@@ -96,8 +96,8 @@ from evaluation import (  # noqa: E402
     read_labels,
     synthetic_warp,
 )
-from module_detection import extract_bounding_boxes  # noqa: E402
-from module_preprocess import (  # noqa: E402
+from MODULE.module_detection import extract_bounding_boxes  # noqa: E402
+from MODULE.module_preprocess import (  # noqa: E402
     DEFAULT_HYSTERESIS_LOW,
     DEFAULT_MIN_AREA,
     DEFAULT_OPEN_KSIZE,

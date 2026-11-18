@@ -13,8 +13,14 @@ với nhau (EXPERIMENT_REVIEW.md, P1.2 và P2.2).
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+# Tự động đảm bảo thư mục MODULE luôn có trong sys.path
+_MODULE_DIR = Path(__file__).resolve().parent / "MODULE"
+if _MODULE_DIR.is_dir() and str(_MODULE_DIR) not in sys.path:
+    sys.path.insert(0, str(_MODULE_DIR))
 
 import cv2
 import numpy as np
@@ -184,8 +190,8 @@ def estimate_content_homography(template: np.ndarray, test: np.ndarray,
     quá `refine_if_px` so với identity (dấu hiệu cặp bị lệch sẵn), chạy lại
     bằng `refine_detector` cho chính xác — chi phí chỉ tăng ở vài cặp.
     """
-    from module_preprocess import (DEFAULT_MAX_FEATURES, AlignmentError,
-                                   align_images_with_stats)
+    from MODULE.module_preprocess import (DEFAULT_MAX_FEATURES, AlignmentError,
+                                          align_images_with_stats)
 
     features = max_features or DEFAULT_MAX_FEATURES
 

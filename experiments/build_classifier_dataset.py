@@ -17,13 +17,16 @@ from collections import Counter
 from pathlib import Path
 from typing import Tuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = Path(__file__).resolve().parent.parent
+for _p in (str(_ROOT), str(_ROOT / "MODULE")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from dataset_utils import find_pairs
 from evaluation import read_labels
 from main import process_pair
-from module_classification import (BACKGROUND_CLASS, CLASS_NAMES,
-                                   FEATURE_NAMES, extract_features)
+from MODULE.module_classification import (BACKGROUND_CLASS, CLASS_NAMES,
+                                          FEATURE_NAMES, extract_features)
 
 Box = Tuple[int, int, int, int]
 SCRIPT_DIR = Path(__file__).resolve().parent

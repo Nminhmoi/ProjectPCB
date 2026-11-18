@@ -10,8 +10,14 @@ tránh mỗi nơi tự quét ảnh theo một kiểu.
 from __future__ import annotations
 
 import csv
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Tự động đảm bảo thư mục MODULE luôn có trong sys.path
+_MODULE_DIR = Path(__file__).resolve().parent / "MODULE"
+if _MODULE_DIR.is_dir() and str(_MODULE_DIR) not in sys.path:
+    sys.path.insert(0, str(_MODULE_DIR))
 
 import cv2
 import numpy as np
